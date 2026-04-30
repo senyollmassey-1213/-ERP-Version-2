@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const BASE = process.env.REACT_APP_API_URL || 'backend-production-4750.up.railway.app/api ';
+const BASE = process.env.REACT_APP_API_URL || 'https://backend-production-4750.up.railway.app/api';
 
 const api = axios.create({ baseURL: BASE, timeout: 30000 });
 
