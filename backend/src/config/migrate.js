@@ -93,7 +93,7 @@ const migrations = [
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     CONSTRAINT valid_role CHECK (role IN ('super_admin','client_servicing','user_admin','user')),
-    UNIQUE(email, COALESCE(tenant_id, '00000000-0000-0000-0000-000000000000'::uuid))
+    UNIQUE(email, tenant_id)
   )`,
 
   // ── USER_MODULE_ACCESS: which modules a user can see (set by user_admin) ──
