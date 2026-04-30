@@ -1,0 +1,59 @@
+.login-page { min-height: 100vh; display: flex; }
+
+.login-left {
+  width: 400px; flex-shrink: 0;
+  background: var(--color-primary);
+  padding: 48px 40px;
+  display: flex; flex-direction: column; gap: 40px;
+  position: relative; overflow: hidden;
+}
+.login-left::before {
+  content:''; position: absolute; top: -80px; right: -80px;
+  width: 260px; height: 260px;
+  background: radial-gradient(circle, rgba(199,91,57,0.22), transparent 70%);
+  border-radius: 50%;
+}
+.login-left::after {
+  content:''; position: absolute; bottom: -60px; left: -60px;
+  width: 220px; height: 220px;
+  background: radial-gradient(circle, rgba(199,91,57,0.12), transparent 70%);
+  border-radius: 50%;
+}
+.login-brand { display: flex; align-items: center; gap: 12px; position: relative; z-index: 1; }
+.login-logo { width: 42px; height: 42px; background: var(--color-secondary); border-radius: 11px; display: flex; align-items: center; justify-content: center; font-family: var(--font-display); font-size: 22px; font-weight: 700; color: white; }
+.login-brand h1 { font-family: var(--font-display); font-size: 20px; color: white; }
+.login-brand p { font-size: 10px; color: rgba(255,255,255,0.45); text-transform: uppercase; letter-spacing: 0.08em; }
+.login-tagline { position: relative; z-index: 1; }
+.login-tagline h2 { font-family: var(--font-display); font-size: 28px; color: white; line-height: 1.25; margin-bottom: 14px; }
+.login-tagline p { font-size: 13px; color: rgba(255,255,255,0.5); line-height: 1.7; }
+.login-industries { display: flex; flex-direction: column; gap: 8px; position: relative; z-index: 1; margin-top: auto; }
+.industry-chip { padding: 8px 14px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; font-size: 13px; color: rgba(255,255,255,0.6); }
+
+.login-right { flex: 1; display: flex; align-items: center; justify-content: center; padding: 32px; background: var(--color-bg); }
+.login-card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-xl); padding: 36px; width: 100%; max-width: 400px; box-shadow: var(--shadow-md); }
+.login-header { margin-bottom: 24px; }
+.login-header h2 { font-size: 22px; margin-bottom: 4px; }
+.login-header p { font-size: 13px; color: var(--color-text-3); }
+
+.login-tenant-header { display: flex; align-items: center; gap: 14px; padding: 14px; background: var(--color-surface-2); border-radius: var(--radius-md); margin-bottom: 22px; }
+.tenant-logo-badge { width: 44px; height: 44px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-family: var(--font-display); font-size: 20px; font-weight: 700; color: white; flex-shrink: 0; }
+.login-tenant-header h3 { font-size: 15px; margin-bottom: 4px; }
+
+.input-icon-wrap { position: relative; }
+.input-icon-wrap .form-input { padding-right: 40px; }
+.input-icon-btn { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: var(--color-text-3); display: flex; align-items: center; }
+
+.demo-box { margin-top: 22px; padding: 14px; background: var(--color-surface-2); border-radius: var(--radius-md); border: 1px dashed var(--color-border); }
+.demo-title { font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--color-text-muted); font-weight: 600; margin-bottom: 10px; }
+.demo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.demo-btn { padding: 6px 10px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; font-size: 11px; cursor: pointer; color: var(--color-text-2); transition: var(--transition); font-family: var(--font); }
+.demo-btn:hover { border-color: var(--color-secondary); color: var(--color-secondary); }
+.login-footer { text-align: center; margin-top: 20px; font-size: 11px; color: var(--color-text-muted); }
+
+@media (max-width: 768px) {
+  .login-page { flex-direction: column; }
+  .login-left { width: 100%; padding: 28px 20px; gap: 20px; }
+  .login-tagline h2 { font-size: 22px; }
+  .login-industries { display: none; }
+  .login-card { padding: 24px 18px; }
+}

@@ -1,0 +1,94 @@
+.module-page { display: flex; flex-direction: column; gap: 16px; }
+
+.module-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.module-header h2 { font-size: 20px; margin-bottom: 4px; }
+
+.module-stats {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--color-text-3);
+}
+
+.module-actions { display: flex; gap: 8px; align-items: center; }
+
+/* Tabs */
+.module-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 0;
+  overflow-x: auto;
+}
+
+.module-tab {
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--color-text-3);
+  border-bottom: 2px solid transparent;
+  transition: var(--transition);
+  white-space: nowrap;
+  font-family: var(--font-main);
+  margin-bottom: -1px;
+}
+
+.module-tab:hover { color: var(--color-text); }
+.module-tab.active { color: var(--color-secondary); border-bottom-color: var(--color-secondary); }
+
+/* Toolbar */
+.module-toolbar { display: flex; gap: 10px; align-items: center; }
+
+.search-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: var(--color-surface);
+  border: 1.5px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-3);
+  flex: 1;
+  max-width: 400px;
+  transition: var(--transition);
+}
+
+.search-box:focus-within {
+  border-color: var(--color-secondary);
+  box-shadow: 0 0 0 3px rgba(199,91,57,0.1);
+}
+
+.search-input {
+  border: none;
+  outline: none;
+  background: none;
+  font-size: 13px;
+  flex: 1;
+  color: var(--color-text);
+  font-family: var(--font-main);
+}
+
+/* Row actions */
+.row-actions { display: flex; gap: 4px; opacity: 0; transition: var(--transition); }
+.table tr:hover .row-actions { opacity: 1; }
+
+/* Pagination */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--color-text-3);
+  padding: 8px 0;
+}
