@@ -20,18 +20,17 @@ const Icon = ({ name, size = 17 }) => {
 };
 
 const Sidebar = ({ collapsed, onToggle }) => {
-  const { user, tenant, isSuperAdmin, isClientServicing, isUserAdmin, isTenantUser } = useAuth();
+  const { user, tenant, isSuperAdmin, isClientServicing } = useAuth();
   const [modules, setModules] = useState([]);
 
   useEffect(() => {
-    if (isTenantUser || (user?.role === 'user_admin')) {
+    if (user?.role === 'user_admin' || user?.role === 'user') {
       moduleAPI.list().then(res => {
         if (res.success) setModules(res.data);
       }).catch(() => {});
     }
   }, [user]);
 
-  // Platform admin nav
   const platformNav = [
     { path: '/dashboard', icon: 'LayoutDashboard', label: 'Dashboard' },
     ...(isClientServicing ? [{ path: '/tenants', icon: 'Building2', label: 'Companies' }] : []),
@@ -41,12 +40,15 @@ const Sidebar = ({ collapsed, onToggle }) => {
     ] : []),
   ];
 
-  // Tenant module nav
-  const tenantNav = modules.map(m => ({
-    path: `/m/${m.slug}`,
-    icon: m.icon || 'Package',
-    label: m.name,
-  }));
+  const tenantNav = [
+    { path: '/dashboard', icon: 'LayoutDashboard', label: 'Dashboard' },
+    ...modules
+      .filter(m => m.slug !== 'dashboard' && m.slug !== 'reports')
+      .map(m => ({ path: `/m/${m.slug}`, icon: m.icon || 'Package', label: m.name })),
+    ...(modules.find(m => m.slug === 'reports')
+      ? [{ path: '/reports', icon: 'BarChart2', label: 'Reports' }]
+      : []),
+  ];
 
   const navItems = (isSuperAdmin || isClientServicing) ? platformNav : tenantNav;
 
@@ -72,7 +74,7 @@ const Sidebar = ({ collapsed, onToggle }) => {
           </div>
           <div>
             <div className="sidebar-user-name">{user?.firstName} {user?.lastName}</div>
-            <div className="sidebar-user-role">{user?.role?.replace(/_/g,' ')}</div>
+            <div className="sidebar-user-role">{user?.role?.replace(/_/g, ' ')}</div>
           </div>
         </div>
       )}
@@ -94,11 +96,12 @@ const Sidebar = ({ collapsed, onToggle }) => {
           </NavLink>
         ))}
 
-        {/* Settings for tenant users */}
-        {(user?.role === 'user_admin') && (
+        {user?.role === 'user_admin' && (
           <>
             {!collapsed && <span className="nav-label" style={{ marginTop: 8 }}>Admin</span>}
-            <NavLink to="/settings" className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`} title={collapsed ? 'Settings' : ''}>
+            <NavLink to="/settings"
+              className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}
+              title={collapsed ? 'Settings' : ''}>
               <span className="item-icon"><Settings size={17} /></span>
               {!collapsed && <span>Settings</span>}
             </NavLink>
@@ -106,9 +109,7 @@ const Sidebar = ({ collapsed, onToggle }) => {
         )}
       </nav>
 
-      {!collapsed && (
-        <div className="sidebar-footer">v2.0 · Drusshti ERP</div>
-      )}
+      {!collapsed && <div className="sidebar-footer">v2.0 · Drusshti ERP</div>}
     </aside>
   );
 };

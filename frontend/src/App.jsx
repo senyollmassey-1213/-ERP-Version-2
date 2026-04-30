@@ -11,6 +11,7 @@ import IndustriesPage from 'pages/IndustriesPage';
 import PlatformUsersPage from 'pages/PlatformUsersPage';
 import SettingsPage   from 'pages/SettingsPage';
 import ModulePage     from 'pages/ModulePage';
+import ReportsPage    from 'pages/ReportsPage';
 
 const Loader = () => (
   <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center' }}>
@@ -54,6 +55,7 @@ const AppRoutes = () => {
           <Protected allow={['user_admin','user']}><ModulePage /></Protected>
         } />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/reports" element={<Protected allow={['user_admin','user']}><ReportsPage /></Protected>} />
       </Route>
 
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
