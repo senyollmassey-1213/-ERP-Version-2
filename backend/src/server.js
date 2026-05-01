@@ -34,6 +34,7 @@ app.use('/api/users/platform', require('./routes/platformUsers'));
 app.use('/api/modules',     require('./routes/modules'));
 app.use('/api/records',     require('./routes/records'));
 app.use('/api/dashboard',   require('./routes/dashboard'));
+app.use('/api/skus',        require('./routes/skus'));
 
 app.use(notFound);
 app.use(errorHandler);

@@ -3,15 +3,18 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from 'context/AuthContext';
 
-import AppLayout      from 'components/layout/AppLayout';
-import LoginPage      from 'pages/LoginPage';
-import Dashboard      from 'pages/Dashboard';
-import TenantsPage    from 'pages/TenantsPage';
-import IndustriesPage from 'pages/IndustriesPage';
-import PlatformUsersPage from 'pages/PlatformUsersPage';
-import SettingsPage   from 'pages/SettingsPage';
-import ModulePage     from 'pages/ModulePage';
-import ReportsPage    from 'pages/ReportsPage';
+import AppLayout          from 'components/layout/AppLayout';
+import LoginPage          from 'pages/LoginPage';
+import Dashboard          from 'pages/Dashboard';
+import TenantsPage        from 'pages/TenantsPage';
+import IndustriesPage     from 'pages/IndustriesPage';
+import PlatformUsersPage  from 'pages/PlatformUsersPage';
+import SettingsPage       from 'pages/SettingsPage';
+import ModulePage         from 'pages/ModulePage';
+import ReportsPage        from 'pages/ReportsPage';
+import ScanPage           from 'pages/ScanPage';
+import ScanReviewPage     from 'pages/ScanReviewPage';
+import QRBulkGeneratePage from 'pages/QRBulkGeneratePage';
 
 const Loader = () => (
   <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center' }}>
@@ -57,7 +60,14 @@ const AppRoutes = () => {
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/reports" element={<Protected allow={['user_admin','user']}><ReportsPage /></Protected>} />
       </Route>
+        {/* QR Scan — full screen, no sidebar */}
+        <Route path="/scan" element={<Protected><ScanPage /></Protected>} />
+        <Route path="/scan/review/:skuCode" element={<Protected><ScanReviewPage /></Protected>} />
 
+        {/* QR Generator — platform admin, inside AppLayout */}
+        <Route element={<Protected allow={['super_admin','client_servicing']}><AppLayout /></Protected>}>
+        <Route path="/qr-generate" element={<QRBulkGeneratePage />} />
+      </Route>  
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

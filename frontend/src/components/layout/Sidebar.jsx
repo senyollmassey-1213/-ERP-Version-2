@@ -3,15 +3,16 @@ import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Users, Building2, ChevronLeft, ChevronRight,
   TrendingUp, ShoppingCart, Factory, Package, FileText, BarChart2,
-  Archive, Warehouse, Briefcase, Settings, Shield, UserCog,
+  Archive, Warehouse, Briefcase, Settings, Shield, UserCog, QrCode,
 } from 'lucide-react';
 import { useAuth } from 'context/AuthContext';
 import { moduleAPI } from 'services/api';
 import './Sidebar.css';
 
+
 const ICON_MAP = {
   LayoutDashboard, Users, Building2, TrendingUp, ShoppingCart, Factory,
-  Package, FileText, BarChart2, Archive, Warehouse, Briefcase, Settings, Shield,
+  Package, FileText, BarChart2, Archive, Warehouse, Briefcase, Settings, Shield, QrCode,
 };
 
 const Icon = ({ name, size = 17 }) => {
@@ -37,6 +38,7 @@ const Sidebar = ({ collapsed, onToggle }) => {
     ...(isSuperAdmin ? [
       { path: '/industries', icon: 'Shield', label: 'Industries' },
       { path: '/platform-users', icon: 'UserCog', label: 'Platform Users' },
+      { path: '/qr-generate', icon: 'QrCode', label: 'QR Generator' },
     ] : []),
   ];
 
@@ -44,7 +46,8 @@ const Sidebar = ({ collapsed, onToggle }) => {
     { path: '/dashboard', icon: 'LayoutDashboard', label: 'Dashboard' },
     ...modules
       .filter(m => m.slug !== 'dashboard' && m.slug !== 'reports')
-      .map(m => ({ path: `/m/${m.slug}`, icon: m.icon || 'Package', label: m.name })),
+      .map(m => ({ path: /m/${m.slug}, icon: m.icon || 'Package', label: m.name })),
+    { path: '/scan', icon: 'QrCode', label: 'Scan Item' },
     ...(modules.find(m => m.slug === 'reports')
       ? [{ path: '/reports', icon: 'BarChart2', label: 'Reports' }]
       : []),
