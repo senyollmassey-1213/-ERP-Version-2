@@ -86,13 +86,14 @@ export const dashboardAPI = {
 };
 
 export const skuAPI = {
-  generate: (recordId, data) => api.post(/skus/record/${recordId}, data),
+  generate: (recordId, data) => api.post(`/skus/record/${recordId}`, data),
   bulkGenerate: (data) => api.post('/skus/bulk-generate', data),
   getTenants: () => api.get('/skus/tenants'),
   list: (params) => api.get('/skus', { params }),
-  lookup: (skuCode) => api.get(/skus/lookup/${encodeURIComponent(skuCode)}),
-  logScan: (skuCode, data) => api.post(/skus/scan/${encodeURIComponent(skuCode)}, data),
-  history: (skuCode) => api.get('/skus/history/${encodeURIComponent(skuCode)}'),
-  labelUrl: (skuCode) => '${process.env.REACT_APP_API_URL || 'https://backend-production-4750.up.railway.app/api'}/skus/label/${skuCode}',
+  lookup: (skuCode) => api.get(`/skus/lookup/${encodeURIComponent(skuCode)}`),
+  logScan: (skuCode, data) => api.post(`/skus/scan/${encodeURIComponent(skuCode)}`, data),
+  history: (skuCode) => api.get(`/skus/history/${encodeURIComponent(skuCode)}`),
+  labelUrl: (skuCode) => `${BASE}/skus/label/${skuCode}`,
+};
 
 export default api;
