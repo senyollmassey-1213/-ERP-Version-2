@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useCallback }  from 'react';
-import { useParams, useNavigate }                   from 'react-router-dom';
-import { Plus, Search, Trash2, Edit, GitBranch }    from 'lucide-react';
-import { moduleAPI, recordAPI }                     from 'services/api';
-import { useAuth }                                  from 'context/AuthContext';
-import toast                                        from 'react-hot-toast';
-import RecordModal                                  from 'components/modules/RecordModal';
-import QRButton                                     from 'components/qr/QRButton';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { Plus, Search, Trash2, Edit, GitBranch } from 'lucide-react';
+import { moduleAPI, recordAPI } from 'services/api';
+import { useAuth } from 'context/AuthContext';
+import toast from 'react-hot-toast';
+import RecordModal from 'components/modules/RecordModal';
+import QRButton from 'components/qr/QRButton';
 
 const ModulePage = () => {
   const { moduleSlug } = useParams();
@@ -52,7 +52,6 @@ const ModulePage = () => {
 
   const handleSave = () => { setShowModal(false); setEditRecord(null); fetchRecords(); };
 
-  // Show first 4 title heads as columns
   const visibleCols = titleHeads.slice(0, 4);
   const statusField = titleHeads.find(t => t.name === 'status');
   const statusOptions = statusField?.options || [];
@@ -147,22 +146,20 @@ const ModulePage = () => {
                         {new Date(r.created_at).toLocaleDateString()}
                       </td>
                       <td>
-                       <div style={{ display: 'flex', gap: 4, opacity: 0 }} className="row-actions">
+                        <div style={{ display: 'flex', gap: 4, opacity: 0 }} className="row-actions">
                           <button className="btn btn-ghost btn-sm btn-icon" onClick={() => { setEditRecord(r); setShowModal(true); }}>
                             <Edit size={13} />
                           </button>
-                      {/\* QR Button - only shows for inventory module \*/}
-                      {moduleSlug === 'inventory' \&\& (
-                      <QRButton
-                          recordId={r.id}
-                          moduleSlug={moduleSlug}
-                          canGenerate={user?.role === 'user_admin'}
-                           />
+                          {moduleSlug === 'inventory' && (
+                            <QRButton
+                              recordId={r.id}
+                              moduleSlug={moduleSlug}
+                              canGenerate={user?.role === 'user_admin'}
+                            />
                           )}
                           <button className="btn btn-ghost btn-sm btn-icon" onClick={() => handleDelete(r.id)}>
-                             <Trash2 size={13} />
+                            <Trash2 size={13} />
                           </button>
-                         </div>
                         </div>
                       </td>
                     </tr>

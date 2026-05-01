@@ -9,7 +9,6 @@ import { useAuth } from 'context/AuthContext';
 import { moduleAPI } from 'services/api';
 import './Sidebar.css';
 
-
 const ICON_MAP = {
   LayoutDashboard, Users, Building2, TrendingUp, ShoppingCart, Factory,
   Package, FileText, BarChart2, Archive, Warehouse, Briefcase, Settings, Shield, QrCode,
@@ -46,7 +45,7 @@ const Sidebar = ({ collapsed, onToggle }) => {
     { path: '/dashboard', icon: 'LayoutDashboard', label: 'Dashboard' },
     ...modules
       .filter(m => m.slug !== 'dashboard' && m.slug !== 'reports')
-      .map(m => ({ path: /m/${m.slug}, icon: m.icon || 'Package', label: m.name })),
+      .map(m => ({ path: `/m/${m.slug}`, icon: m.icon || 'Package', label: m.name })),
     { path: '/scan', icon: 'QrCode', label: 'Scan Item' },
     ...(modules.find(m => m.slug === 'reports')
       ? [{ path: '/reports', icon: 'BarChart2', label: 'Reports' }]
