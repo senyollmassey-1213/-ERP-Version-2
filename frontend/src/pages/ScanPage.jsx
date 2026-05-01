@@ -1,89 +1,70 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { X, Camera, AlertCircle } from 'lucide-react';
 
 const ScanPage = () => {
   const navigate = useNavigate();
-  const videoRef = useRef(null);
-  const streamRef = useRef(null);
-  const rafRef = useRef(null);
+  const scannerRef = useRef(null);
   const [mode, setMode] = useState('idle'); // idle | scanning | manual
   const [error, setError] = useState('');
   const [manualCode, setManualCode] = useState('');
 
   useEffect(() => {
-    return () => { stopCamera(); };
+    return () => { stopScanner(); };
   }, []);
 
-  const stopCamera = () => {
-    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
-    if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
-    if (videoRef.current) { videoRef.current.srcObject = null; }
+  const stopScanner = () => {
+    if (scannerRef.current) {
+      scannerRef.current.clear().catch(() => {});
+      scannerRef.current = null;
+    }
   };
 
-  const startCamera = async () => {
+  const startScanner = async () => {
     setError('');
     setMode('scanning');
 
     setTimeout(async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
-          audio: false,
-        });
+        const { Html5Qrcode } = await import('html5-qrcode');
 
-        streamRef.current = stream;
+        const scanner = new Html5Qrcode('qr-scanner-container');
+        scannerRef.current = scanner;
 
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.setAttribute('playsinline', true);
-          videoRef.current.muted = true;
-
-          await videoRef.current.play().catch(e => console.log('Play error:', e));
-
-          videoRef.current.onloadedmetadata = () => { startDetection(); };
-          if (videoRef.current.readyState >= 2) { startDetection(); }
-        }
-      } catch (err) {
-        setMode('idle');
-        if (err.name === 'NotAllowedError') {
-          setError('Camera permission denied. Please allow camera access in your browser settings.');
-        } else if (err.name === 'NotFoundError') {
+        const cameras = await Html5Qrcode.getCameras();
+        if (!cameras || cameras.length === 0) {
           setError('No camera found on this device.');
-        } else {
-          setError('Could not open camera: ' + err.message);
-        }
-      }
-    }, 200);
-  };
-
-  const startDetection = () => {
-    if (!('BarcodeDetector' in window)) {
-      setMode('manual');
-      stopCamera();
-      return;
-    }
-
-    const detector = new window.BarcodeDetector({ formats: ['qr_code'] });
-
-    const scan = async () => {
-      if (!videoRef.current || !streamRef.current) return;
-      if (videoRef.current.readyState < 2) { rafRef.current = requestAnimationFrame(scan); return; }
-
-      try {
-        const barcodes = await detector.detect(videoRef.current);
-        if (barcodes.length > 0) {
-          const code = barcodes[0].rawValue;
-          stopCamera();
-          navigate(`/scan/review/${encodeURIComponent(code)}`);
+          setMode('idle');
           return;
         }
-      } catch (e) {}
 
-      rafRef.current = requestAnimationFrame(scan);
-    };
+        // Prefer back camera
+        const backCamera = cameras.find(c =>
+          c.label.toLowerCase().includes('back') ||
+          c.label.toLowerCase().includes('rear') ||
+          c.label.toLowerCase().includes('environment')
+        ) || cameras[cameras.length - 1];
 
-    rafRef.current = requestAnimationFrame(scan);
+        await scanner.start(
+          backCamera.id,
+          { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
+          (decodedText) => {
+            stopScanner();
+            navigate(`/scan/review/${encodeURIComponent(decodedText)}`);
+          },
+          () => {} // ignore scan errors
+        );
+      } catch (err) {
+        setMode('idle');
+        if (err.toString().includes('Permission') || err.toString().includes('NotAllowed')) {
+          setError('Camera permission denied. Please allow camera access and try again.');
+        } else if (err.toString().includes('NotFound')) {
+          setError('No camera found on this device.');
+        } else {
+          setError('Could not start camera. Try entering the code manually.');
+        }
+      }
+    }, 300);
   };
 
   const handleManualSubmit = () => {
@@ -92,7 +73,7 @@ const ScanPage = () => {
     navigate(`/scan/review/${encodeURIComponent(code)}`);
   };
 
-  const handleBack = () => { stopCamera(); navigate(-1); };
+  const handleBack = () => { stopScanner(); navigate(-1); };
 
   return (
     <div style={styles.page}>
@@ -112,7 +93,7 @@ const ScanPage = () => {
               <span>{error}</span>
             </div>
           )}
-          <button style={styles.primaryBtn} onClick={startCamera}>
+          <button style={styles.primaryBtn} onClick={startScanner}>
             <Camera size={18} /> Open Camera
           </button>
           <button style={styles.linkBtn} onClick={() => setMode('manual')}>
@@ -124,19 +105,12 @@ const ScanPage = () => {
       {mode === 'scanning' && (
         <div style={styles.scannerWrap}>
           <p style={styles.hint}>Point camera at the QR code on the label</p>
-          <div style={styles.videoContainer}>
-            <video ref={videoRef} style={styles.video} autoPlay playsInline muted />
-            <div style={{ ...styles.corner, top: 12, left: 12, borderTop: '3px solid #c75b39', borderLeft: '3px solid #c75b39' }} />
-            <div style={{ ...styles.corner, top: 12, right: 12, borderTop: '3px solid #c75b39', borderRight: '3px solid #c75b39' }} />
-            <div style={{ ...styles.corner, bottom: 12, left: 12, borderBottom: '3px solid #c75b39', borderLeft: '3px solid #c75b39' }} />
-            <div style={{ ...styles.corner, bottom: 12, right: 12, borderBottom: '3px solid #c75b39', borderRight: '3px solid #c75b39' }} />
-          </div>
-          <p style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12, marginTop: 10 }}>Scanning automatically...</p>
-          <button style={styles.linkBtn} onClick={() => { stopCamera(); setMode('manual'); }}>
+          <div id="qr-scanner-container" style={styles.scannerContainer} />
+          <button style={styles.linkBtn} onClick={() => { stopScanner(); setMode('manual'); }}>
             Can't scan? Enter code manually
           </button>
           <button style={{ ...styles.primaryBtn, background: 'rgba(255,255,255,0.08)', marginTop: 4 }}
-            onClick={() => { stopCamera(); setMode('idle'); }}>
+            onClick={() => { stopScanner(); setMode('idle'); }}>
             Cancel
           </button>
         </div>
@@ -168,6 +142,14 @@ const ScanPage = () => {
           </button>
         </div>
       )}
+
+      <style>{`
+        #qr-scanner-container { width: 100% !important; max-width: 340px; border-radius: 12px; overflow: hidden; }
+        #qr-scanner-container video { border-radius: 12px; width: 100% !important; }
+        #qr-scanner-container img { display: none !important; }
+        #qr-scanner-container select { display: none !important; }
+        #qr-scanner-container > div:last-child { display: none !important; }
+      `}</style>
     </div>
   );
 };
@@ -183,10 +165,8 @@ const styles = {
   errorBox: { display: 'flex', alignItems: 'flex-start', gap: 8, color: '#f87171', fontSize: 12, padding: '10px 14px', background: 'rgba(239,68,68,0.12)', borderRadius: 8, maxWidth: 300, lineHeight: 1.5, border: '1px solid rgba(239,68,68,0.2)' },
   primaryBtn: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '13px 24px', background: '#c75b39', color: 'white', border: 'none', borderRadius: 10, cursor: 'pointer', fontWeight: 600, fontSize: 15, fontFamily: "'Inter', sans-serif", width: '100%', maxWidth: 300 },
   linkBtn: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.35)', fontSize: 12, cursor: 'pointer', fontFamily: "'Inter', sans-serif", padding: '4px 0', textDecoration: 'underline' },
-  scannerWrap: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '16px', gap: 6 },
-  videoContainer: { position: 'relative', width: '100%', maxWidth: 360, aspectRatio: '4/3', borderRadius: 12, overflow: 'hidden', background: '#111', border: '1px solid rgba(255,255,255,0.1)' },
-  video: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' },
-  corner: { position: 'absolute', width: 22, height: 22 },
+  scannerWrap: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '16px', gap: 10 },
+  scannerContainer: { width: '100%', maxWidth: 340, borderRadius: 12, overflow: 'hidden', background: '#111', minHeight: 300 },
   input: { width: '100%', maxWidth: 300, padding: '13px 16px', border: '1.5px solid rgba(255,255,255,0.15)', borderRadius: 10, background: 'rgba(255,255,255,0.06)', color: 'white', fontSize: 16, fontFamily: 'monospace', outline: 'none', textAlign: 'center', letterSpacing: '0.08em' },
 };
 
