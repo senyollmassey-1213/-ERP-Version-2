@@ -22,7 +22,6 @@ const Loader = () => (
   </div>
 );
 
-// Generic protected route
 const Protected = ({ children, allow }) => {
   const { isAuthenticated, loading, user } = useAuth();
   if (loading) return <Loader />;
@@ -39,6 +38,7 @@ const AppRoutes = () => {
     <Routes>
       <Route path="/login" element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <LoginPage />} />
 
+      {/* Main app with sidebar */}
       <Route element={<Protected><AppLayout /></Protected>}>
         <Route path="/dashboard" element={<Dashboard />} />
 
@@ -58,16 +58,22 @@ const AppRoutes = () => {
           <Protected allow={['user_admin','user']}><ModulePage /></Protected>
         } />
         <Route path="/settings" element={<SettingsPage />} />
-        <Route path="/reports" element={<Protected allow={['user_admin','user']}><ReportsPage /></Protected>} />
+        <Route path="/reports" element={
+          <Protected allow={['user_admin','user']}><ReportsPage /></Protected>
+        } />
       </Route>
-        {/* QR Scan — full screen, no sidebar */}
-        <Route path="/scan" element={<Protected><ScanPage /></Protected>} />
-        <Route path="/scan/review/:skuCode" element={<Protected><ScanReviewPage /></Protected>} />
 
-        {/* QR Generator — platform admin, inside AppLayout */}
-        <Route element={<Protected allow={['super_admin','client_servicing']}><AppLayout /></Protected>}>
+      {/* QR Scan — full screen, no sidebar */}
+      <Route path="/scan" element={<Protected><ScanPage /></Protected>} />
+      <Route path="/scan/review/:skuCode" element={<Protected><ScanReviewPage /></Protected>} />
+
+      {/* QR Generator — platform admin + user admin, has sidebar */}
+      <Route element={
+        <Protected allow={['super_admin','client_servicing','user_admin']}><AppLayout /></Protected>
+      }>
         <Route path="/qr-generate" element={<QRBulkGeneratePage />} />
-      </Route>  
+      </Route>
+
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

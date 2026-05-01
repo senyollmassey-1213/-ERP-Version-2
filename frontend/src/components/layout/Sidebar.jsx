@@ -47,6 +47,9 @@ const Sidebar = ({ collapsed, onToggle }) => {
       .filter(m => m.slug !== 'dashboard' && m.slug !== 'reports')
       .map(m => ({ path: `/m/${m.slug}`, icon: m.icon || 'Package', label: m.name })),
     { path: '/scan', icon: 'QrCode', label: 'Scan Item' },
+    ...(user?.role === 'user_admin'
+      ? [{ path: '/qr-generate', icon: 'QrCode', label: 'QR Generator' }]
+      : []),
     ...(modules.find(m => m.slug === 'reports')
       ? [{ path: '/reports', icon: 'BarChart2', label: 'Reports' }]
       : []),
