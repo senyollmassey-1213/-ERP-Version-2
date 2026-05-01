@@ -92,8 +92,7 @@ export const skuAPI = {
   list: (params) => api.get('/skus', { params }),
   lookup: (skuCode) => api.get(/skus/lookup/${encodeURIComponent(skuCode)}),
   logScan: (skuCode, data) => api.post(/skus/scan/${encodeURIComponent(skuCode)}, data),
-  history: (skuCode) => api.get(/skus/history/${encodeURIComponent(skuCode)}),
-  labelUrl: (skuCode) => ${process.env.REACT\_APP\_API\_URL || 'https://backend-production-4750.up.railway.app/api'}/skus/label/${skuCode},
-};
+  history: (skuCode) => api.get('/skus/history/${encodeURIComponent(skuCode)}'),
+  labelUrl: (skuCode) => '${process.env.REACT_APP_API_URL || 'https://backend-production-4750.up.railway.app/api'}/skus/label/${skuCode}',
 
 export default api;

@@ -156,7 +156,7 @@ const ModulePage = () => {
                       <QRButton
                           recordId={r.id}
                           moduleSlug={moduleSlug}
-                          canGenerate={user?.role === 'user\_admin'}
+                          canGenerate={user?.role === 'user_admin'}
                            />
                           )}
                           <button className="btn btn-ghost btn-sm btn-icon" onClick={() => handleDelete(r.id)}>
