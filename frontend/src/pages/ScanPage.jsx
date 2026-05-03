@@ -31,22 +31,8 @@ const ScanPage = () => {
         const scanner = new Html5Qrcode('qr-scanner-container');
         scannerRef.current = scanner;
 
-        const cameras = await Html5Qrcode.getCameras();
-        if (!cameras || cameras.length === 0) {
-          setError('No camera found on this device.');
-          setMode('idle');
-          return;
-        }
-
-        // Prefer back camera
-        const backCamera = cameras.find(c =>
-          c.label.toLowerCase().includes('back') ||
-          c.label.toLowerCase().includes('rear') ||
-          c.label.toLowerCase().includes('environment')
-        ) || cameras[cameras.length - 1];
-
         await scanner.start(
-          backCamera.id,
+          { facingMode: "environment" },
           { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
           (decodedText) => {
             stopScanner();
@@ -64,7 +50,7 @@ const ScanPage = () => {
           setError('Could not start camera. Try entering the code manually.');
         }
       }
-    }, 300);
+    }, 600);
   };
 
   const handleManualSubmit = () => {
