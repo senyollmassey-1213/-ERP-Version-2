@@ -15,6 +15,7 @@ import ReportsPage        from 'pages/ReportsPage';
 import ScanPage           from 'pages/ScanPage';
 import ScanReviewPage     from 'pages/ScanReviewPage';
 import QRBulkGeneratePage from 'pages/QRBulkGeneratePage';
+import MobileHomePage     from 'pages/MobileHomePage';
 
 const Loader = () => (
   <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center' }}>
@@ -66,6 +67,7 @@ const AppRoutes = () => {
       {/* QR Scan — full screen, no sidebar */}
       <Route path="/scan" element={<Protected><ScanPage /></Protected>} />
       <Route path="/scan/review/:skuCode" element={<Protected><ScanReviewPage /></Protected>} />
+      <Route path="/mobile" element={<Protected><MobileHomePage /></Protected>} />
 
       {/* QR Generator — platform admin + user admin, has sidebar */}
       <Route element={
