@@ -6,15 +6,35 @@ const getTenantModules = asyncHandler(async (req, res) => {
   let tenantId = req.tenantId;
 
   // user_admin can query their own tenant
-  const r = await query(
-    `SELECT m.id, m.name, m.slug, m.icon, m.sort_order,
-            tm.is_enabled, tm.sort_order AS tenant_sort_order
-     FROM tenant_modules tm
-     JOIN modules m ON m.id=tm.module_id
-     WHERE tm.tenant_id=$1 AND tm.is_enabled=true AND m.is_active=true
-     ORDER BY COALESCE(tm.sort_order, m.sort_order)`,
-    [tenantId]
-  );
+  const userId = req.user.id;
+  const role = req.user.role;
+
+  let r;
+  if (role === 'user_admin') {
+    // user_admin sees all enabled modules
+    r = await query(
+      `SELECT m.id, m.name, m.slug, m.icon, m.sort_order,
+              tm.is_enabled, tm.sort_order AS tenant_sort_order
+       FROM tenant_modules tm
+       JOIN modules m ON m.id=tm.module_id
+       WHERE tm.tenant_id=$1 AND tm.is_enabled=true AND m.is_active=true
+       ORDER BY COALESCE(tm.sort_order, m.sort_order)`,
+      [tenantId]
+    );
+  } else {
+    // regular user — only modules explicitly marked visible
+    r = await query(
+      `SELECT m.id, m.name, m.slug, m.icon, m.sort_order,
+              tm.is_enabled, tm.sort_order AS tenant_sort_order
+       FROM tenant_modules tm
+       JOIN modules m ON m.id=tm.module_id
+       JOIN user_module_access uma ON uma.module_id=m.id
+       WHERE tm.tenant_id=$1 AND tm.is_enabled=true AND m.is_active=true
+         AND uma.user_id=$2 AND uma.tenant_id=$1 AND uma.is_visible=true
+       ORDER BY COALESCE(tm.sort_order, m.sort_order)`,
+      [tenantId, userId]
+    );
+  }
   sendSuccess(res, r.rows);
 });
 
