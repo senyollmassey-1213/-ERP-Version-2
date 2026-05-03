@@ -32,20 +32,27 @@ const ScanReviewPage = () => {
   const [done, setDone]         = useState(false);
 
   useEffect(() => {
-    const fetch = async () => {
+    let cancelled = false;
+
+    const fetchData = async () => {
       try {
         const res = await api.get(`/skus/lookup/${encodeURIComponent(skuCode)}`);
+        if (cancelled) return;
         if (res.success) {
           setSku(res.data.sku);
           setTitleHeads(res.data.titleHeads || []);
           setEditData(res.data.sku.data || {});
+        } else {
+          setError(res.message || 'Item not found');
         }
       } catch (err) {
-        setError(err.message || 'Item not found');
+        if (!cancelled) setError(err.message || 'Item not found');
       }
-      setLoading(false);
+      if (!cancelled) setLoading(false);
     };
-    fetch();
+
+    fetchData();
+    return () => { cancelled = true; };
   }, [skuCode]);
 
   const handleSubmit = async () => {
@@ -161,24 +168,38 @@ const ScanReviewPage = () => {
 
           {/* Editable fields from title heads */}
           {titleHeads.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#718096', marginBottom: 2 }}>
-                Update Fields
-              </p>
-              {titleHeads.filter(f => !f.name.startsWith('_')).map(f => (
-                <div key={f.id} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <label style={{ fontSize: 11, fontWeight: 600, color: '#4a5568', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                    {f.label}
-                  </label>
-                  <FieldInput
-                    field={f}
-                    value={editData[f.name]}
-                    onChange={val => setEditData(prev => ({ ...prev, [f.name]: val }))}
-                  />
-                </div>
-              ))}
-            </div>
-          )}
+  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#718096', marginBottom: 2 }}>
+      Update Fields
+    </p>
+    {titleHeads.filter(f => !f.name.startsWith('_')).map(f => (
+      <div key={f.id} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <label style={{ fontSize: 11, fontWeight: 600, color: '#4a5568', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+          {f.label}
+        </label>
+        <FieldInput
+          field={f}
+          value={editData[f.name]}
+          onChange={val => setEditData(prev => ({ ...prev, [f.name]: val }))}
+        />
+      </div>
+    ))}
+  </div>
+)}
+
+{titleHeads.length === 0 && sku?.data && Object.keys(sku.data).length > 0 && (
+  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#718096', marginBottom: 2 }}>
+      Item Details
+    </p>
+    {Object.entries(sku.data).map(([key, val]) => (
+      <div key={key} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, borderBottom: '1px solid #f0f0f0', paddingBottom: 6 }}>
+        <span style={{ color: '#718096', textTransform: 'capitalize' }}>{key.replace(/_/g, ' ')}</span>
+        <span style={{ color: '#1a202c', fontWeight: 500 }}>{String(val ?? '—')}</span>
+      </div>
+    ))}
+  </div>
+)}
         </div>
 
         {/* Scan action card */}

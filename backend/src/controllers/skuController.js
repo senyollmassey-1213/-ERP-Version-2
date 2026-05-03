@@ -118,6 +118,15 @@ const getTenantsForQR = asyncHandler(async (req, res) => {
 const lookupSku = asyncHandler(async (req, res) => {
   const { skuCode } = req.params;
 
+  // Normalise: strip whitespace, uppercase for a reliable exact match
+  const normalised = (skuCode || '').trim().toUpperCase();
+
+  console.log(`[SKU Lookup] raw="${skuCode}" → normalised="${normalised}"`);
+
+  if (!normalised) {
+    return res.status(400).json({ success: false, message: 'SKU code is required' });
+  }
+
   const r = await query(
     `SELECT s.*, r.title, r.record_number, r.data, r.status,
             m.name AS module_name, m.slug AS module_slug,
@@ -126,12 +135,12 @@ const lookupSku = asyncHandler(async (req, res) => {
      LEFT JOIN records r ON r.id = s.record_id
      LEFT JOIN modules m ON m.id = s.module_id
      LEFT JOIN tenants t ON t.id = s.tenant_id
-     WHERE s.sku_code=$1`,
-    [skuCode]
+     WHERE UPPER(TRIM(s.sku_code))=$1`,
+    [normalised]
   );
 
   if (!r.rows[0]) {
-    return res.status(404).json({ success: false, message: 'QR code not found in system' });
+    return res.status(404).json({ success: false, message: `QR code not found: ${normalised}` });
   }
 
   const sku = r.rows[0];
@@ -157,7 +166,8 @@ const logScan = asyncHandler(async (req, res) => {
   const { skuCode } = req.params;
   const { action = 'scanned', location, notes, recordData, assignToRecord } = req.body;
 
-  const skuR = await query(`SELECT * FROM item_skus WHERE sku_code=$1`, [skuCode]);
+  const normalisedSku = (skuCode || '').trim().toUpperCase();
+  const skuR = await query(`SELECT * FROM item_skus WHERE UPPER(TRIM(sku_code))=$1`, [normalisedSku]);
   if (!skuR.rows[0]) {
     return res.status(404).json({ success: false, message: 'SKU not found' });
   }

@@ -5,52 +5,85 @@ import { X, Camera, AlertCircle } from 'lucide-react';
 const ScanPage = () => {
   const navigate = useNavigate();
   const scannerRef = useRef(null);
+  const scannedRef = useRef(false); // dedupe guard — prevents double-fire
   const [mode, setMode] = useState('idle'); // idle | scanning | manual
   const [error, setError] = useState('');
   const [manualCode, setManualCode] = useState('');
+  const [scanCount, setScanCount] = useState(0); // visible feedback
 
   useEffect(() => {
     return () => { stopScanner(); };
   }, []);
 
-  const stopScanner = () => {
+  const stopScanner = async () => {
     if (scannerRef.current) {
-      scannerRef.current.clear().catch(() => {});
+      try { await scannerRef.current.stop(); } catch (_) {}
+      try { await scannerRef.current.clear(); } catch (_) {}
       scannerRef.current = null;
     }
   };
 
   const startScanner = async () => {
     setError('');
+    scannedRef.current = false;
+    setScanCount(0);
     setMode('scanning');
 
-    setTimeout(async () => {
+    // Small rAF delay so the DOM container is painted before we initialize
+    requestAnimationFrame(async () => {
       try {
         const { Html5Qrcode } = await import('html5-qrcode');
+
+        // Ensure the container is present in the DOM
+        const container = document.getElementById('qr-scanner-container');
+        if (!container) {
+          setMode('idle');
+          setError('Scanner could not initialise. Please try again.');
+          return;
+        }
 
         const scanner = new Html5Qrcode('qr-scanner-container');
         scannerRef.current = scanner;
 
         await scanner.start(
-          { facingMode: "environment" },
-          { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
-          (decodedText) => {
-            stopScanner();
-            navigate(`/scan/review/${encodeURIComponent(decodedText)}`);
+          { facingMode: 'environment' },
+          {
+            fps: 15,
+            // Use a percentage-based qrbox so it works on any mobile viewport
+            qrbox: (viewfinderWidth, viewfinderHeight) => {
+              const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+              const size = Math.floor(minEdge * 0.75);
+              return { width: size, height: size };
+            },
           },
-          () => {} // ignore scan errors
+          async (decodedText) => {
+            // Dedupe: only handle the very first successful scan
+            if (scannedRef.current) return;
+            scannedRef.current = true;
+
+            // Normalise: trim whitespace, convert to uppercase
+            const skuCode = decodedText.trim().toUpperCase();
+
+            await stopScanner();
+            navigate(`/scan/review/${encodeURIComponent(skuCode)}`);
+          },
+          (_, __) => {
+            // Count failed scan attempts so user sees something is happening
+            setScanCount(prev => prev + 1);
+          }
         );
       } catch (err) {
         setMode('idle');
-        if (err.toString().includes('Permission') || err.toString().includes('NotAllowed')) {
+        const msg = err?.toString() || '';
+        if (msg.includes('Permission') || msg.includes('NotAllowed')) {
           setError('Camera permission denied. Please allow camera access and try again.');
-        } else if (err.toString().includes('NotFound')) {
+        } else if (msg.includes('NotFound')) {
           setError('No camera found on this device.');
         } else {
           setError('Could not start camera. Try entering the code manually.');
         }
       }
-    }, 600);
+    });
   };
 
   const handleManualSubmit = () => {
@@ -59,7 +92,7 @@ const ScanPage = () => {
     navigate(`/scan/review/${encodeURIComponent(code)}`);
   };
 
-  const handleBack = () => { stopScanner(); navigate(-1); };
+  const handleBack = async () => { await stopScanner(); navigate(-1); };
 
   return (
     <div style={styles.page}>
@@ -92,11 +125,16 @@ const ScanPage = () => {
         <div style={styles.scannerWrap}>
           <p style={styles.hint}>Point camera at the QR code on the label</p>
           <div id="qr-scanner-container" style={styles.scannerContainer} />
-          <button style={styles.linkBtn} onClick={() => { stopScanner(); setMode('manual'); }}>
+          {scanCount > 0 && (
+            <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 11, margin: 0 }}>
+              Scanning… ({scanCount} attempt{scanCount !== 1 ? 's' : ''})
+            </p>
+          )}
+          <button style={styles.linkBtn} onClick={async () => { await stopScanner(); setMode('manual'); }}>
             Can't scan? Enter code manually
           </button>
           <button style={{ ...styles.primaryBtn, background: 'rgba(255,255,255,0.08)', marginTop: 4 }}
-            onClick={() => { stopScanner(); setMode('idle'); }}>
+            onClick={async () => { await stopScanner(); setMode('idle'); }}>
             Cancel
           </button>
         </div>
@@ -130,11 +168,12 @@ const ScanPage = () => {
       )}
 
       <style>{`
-        #qr-scanner-container { width: 100% !important; max-width: 340px; border-radius: 12px; overflow: hidden; }
-        #qr-scanner-container video { border-radius: 12px; width: 100% !important; }
+        #qr-scanner-container { width: 100% !important; max-width: 100% !important; border-radius: 12px; overflow: hidden; }
+        #qr-scanner-container video { border-radius: 12px; width: 100% !important; object-fit: cover; }
         #qr-scanner-container img { display: none !important; }
         #qr-scanner-container select { display: none !important; }
-        #qr-scanner-container > div:last-child { display: none !important; }
+        /* Do NOT hide the last child — Html5Qrcode uses it for scan state tracking */
+        #qr-scanner-container > div:last-child { font-size: 0 !important; height: 0 !important; overflow: hidden !important; }
       `}</style>
     </div>
   );
@@ -152,7 +191,7 @@ const styles = {
   primaryBtn: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '13px 24px', background: '#c75b39', color: 'white', border: 'none', borderRadius: 10, cursor: 'pointer', fontWeight: 600, fontSize: 15, fontFamily: "'Inter', sans-serif", width: '100%', maxWidth: 300 },
   linkBtn: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.35)', fontSize: 12, cursor: 'pointer', fontFamily: "'Inter', sans-serif", padding: '4px 0', textDecoration: 'underline' },
   scannerWrap: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '16px', gap: 10 },
-  scannerContainer: { width: '100%', maxWidth: 340, borderRadius: 12, overflow: 'hidden', background: '#111', minHeight: 300 },
+  scannerContainer: { width: '100%', maxWidth: '100%', borderRadius: 12, overflow: 'hidden', background: '#111', minHeight: 'calc(100vh - 200px)' },
   input: { width: '100%', maxWidth: 300, padding: '13px 16px', border: '1.5px solid rgba(255,255,255,0.15)', borderRadius: 10, background: 'rgba(255,255,255,0.06)', color: 'white', fontSize: 16, fontFamily: 'monospace', outline: 'none', textAlign: 'center', letterSpacing: '0.08em' },
 };
 
