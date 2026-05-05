@@ -52,7 +52,7 @@ const listRecords = asyncHandler(async (req, res) => {
   let params = [req.tenantId, moduleId];
   let idx = 3;
 
-  if (status)  { conditions.push(`r.status=$${idx++}`); params.push(status); }
+  if (status)  { conditions.push(`(r.status=$${idx} OR r.data->>'status'=$${idx})`); params.push(status); idx++; }
   if (search)  { conditions.push(`(r.title ILIKE $${idx} OR r.record_number ILIKE $${idx})`); params.push(`%${search}%`); idx++; }
 
   const where = conditions.join(' AND ');
@@ -101,10 +101,11 @@ const createRecord = asyncHandler(async (req, res) => {
   const industryId = tenantR.rows[0].industry_id;
   const recordNumber = await generateRecordNumber(req.tenantId, moduleSlug);
 
+  const resolvedStatus = (data?.status) || status;
   const r = await query(
     `INSERT INTO records (tenant_id, module_id, industry_id, record_number, title, data, status, assigned_to, created_by)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
-    [req.tenantId, modR.rows[0].id, industryId, recordNumber, title, JSON.stringify(data), status, assignedTo || null, req.user.id]
+    [req.tenantId, modR.rows[0].id, industryId, recordNumber, title, JSON.stringify(data), data?.status || status, assignedTo || null, req.user.id]
   );
 
   await query(
@@ -126,7 +127,7 @@ const updateRecord = asyncHandler(async (req, res) => {
   const r = await query(
     `UPDATE records SET
        title=COALESCE($1,title), data=COALESCE($2::jsonb,data),
-       status=COALESCE($3,status), assigned_to=COALESCE($4,assigned_to),
+       status=COALESCE($3, data->>'status', status), assigned_to=COALESCE($4,assigned_to),
        updated_by=$5, updated_at=NOW()
      WHERE id=$6 AND tenant_id=$7 RETURNING *`,
     [title, data ? JSON.stringify(data) : null, status, assignedTo, req.user.id, req.params.id, req.tenantId]
