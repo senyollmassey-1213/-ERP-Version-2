@@ -4,6 +4,7 @@ import {
   LayoutDashboard, Users, Building2, ChevronLeft, ChevronRight,
   TrendingUp, ShoppingCart, Factory, Package, FileText, BarChart2,
   Archive, Warehouse, Briefcase, Settings, Shield, UserCog, QrCode,
+  BedDouble, CalendarCheck, UtensilsCrossed, Sparkles, Car,
 } from 'lucide-react';
 import { useAuth } from 'context/AuthContext';
 import { moduleAPI } from 'services/api';
@@ -12,6 +13,7 @@ import './Sidebar.css';
 const ICON_MAP = {
   LayoutDashboard, Users, Building2, TrendingUp, ShoppingCart, Factory,
   Package, FileText, BarChart2, Archive, Warehouse, Briefcase, Settings, Shield, QrCode,
+  BedDouble, CalendarCheck, UtensilsCrossed, Sparkles, Car,
 };
 
 const Icon = ({ name, size = 17 }) => {
