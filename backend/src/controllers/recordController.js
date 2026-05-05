@@ -22,7 +22,7 @@ const WORKFLOW_RULES = {
     { fromSlug: 'billing',   triggerStatus: 'paid',      toSlug: 'reports',   copyFields: ['client_name','total','payment_date'] },
   ],
   hotel_restaurant: [
-    { fromSlug: 'crm',      triggerStatus: 'converted',   toSlug: 'bookings', copyFields: ['guest_name','phone','email','nationality','id_type','id_number'] },
+    { fromSlug: 'crm', triggerStatus: 'converted', toSlug: 'bookings', copyFields: ['guest_name','phone','email','nationality','id_type','id_number','_allocated_room','_allocated_room_type','_allocated_rate'] },
     { fromSlug: 'bookings', triggerStatus: 'checked_out', toSlug: 'billing',  copyFields: ['guest_name','phone','room_number','room_type','check_in_date','check_out_date','total_nights','room_amount','booking_source'] },
     { fromSlug: 'billing',  triggerStatus: 'paid',        toSlug: 'reports',  copyFields: ['guest_name','total','payment_date','bill_type'] },
   ],

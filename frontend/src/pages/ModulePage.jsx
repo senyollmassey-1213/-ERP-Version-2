@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { Plus, Search, Trash2, Edit, GitBranch } from 'lucide-react';
 import { moduleAPI, recordAPI } from 'services/api';
 import { useAuth } from 'context/AuthContext';
@@ -7,17 +7,33 @@ import toast from 'react-hot-toast';
 import RecordModal from 'components/modules/RecordModal';
 import QRButton from 'components/qr/QRButton';
 
+// Columns to show per module slug
+const MODULE_COLUMNS = {
+  bookings:     ['guest_name', 'room_number', 'check_in_date', 'check_out_date', 'status'],
+  rooms:        ['room_number', 'room_type', 'floor', 'capacity', 'status'],
+  billing:      ['guest_name', 'bill_type', 'total', 'payment_status'],
+  crm:          ['guest_name', 'phone', 'email', 'status'],
+  housekeeping: ['room_number', 'task_type', 'assigned_to', 'status'],
+  transport:    ['guest_name', 'transport_type', 'pickup_datetime', 'status'],
+  menu:         ['item_name', 'category', 'price', 'available'],
+  inventory:    ['item_name', 'category', 'quantity', 'unit'],
+};
+
 const ModulePage = () => {
   const { moduleSlug } = useParams();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Read status from URL query param (e.g. /m/rooms?status=vacant)
+  const queryStatus = new URLSearchParams(location.search).get('status') || '';
 
   const [titleHeads, setTitleHeads] = useState([]);
   const [records, setRecords]       = useState([]);
   const [stats, setStats]           = useState(null);
   const [loading, setLoading]       = useState(true);
   const [search, setSearch]         = useState('');
-  const [filterStatus, setFilterStatus] = useState('');
+  const [filterStatus, setFilterStatus] = useState(queryStatus);
   const [page, setPage]             = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [showModal, setShowModal]   = useState(false);
@@ -52,9 +68,14 @@ const ModulePage = () => {
 
   const handleSave = () => { setShowModal(false); setEditRecord(null); fetchRecords(); };
 
-  const visibleCols = titleHeads.slice(0, 4);
   const statusField = titleHeads.find(t => t.name === 'status');
   const statusOptions = statusField?.options || [];
+
+  // Determine which columns to show
+  const preferredCols = MODULE_COLUMNS[moduleSlug];
+  const visibleCols = preferredCols
+    ? titleHeads.filter(t => preferredCols.includes(t.name)).sort((a, b) => preferredCols.indexOf(a.name) - preferredCols.indexOf(b.name))
+    : titleHeads.slice(0, 4);
 
   const moduleName = moduleSlug.charAt(0).toUpperCase() + moduleSlug.slice(1);
 
@@ -65,7 +86,7 @@ const ModulePage = () => {
         <div>
           <h2 style={{ fontSize: 20, marginBottom: 4 }}>{moduleName}</h2>
           {stats && (
-            <div style={{ display: 'flex', gap: 12, fontSize: 12, color: 'var(--color-text-3)' }}>
+            <div style={{ display: 'flex', gap: 12, fontSize: 12, color: 'var(--color-text-3)', flexWrap: 'wrap' }}>
               <span>{stats.summary?.total || 0} total</span>
               <span>·</span>
               <span>{stats.summary?.this_month || 0} this month</span>
@@ -112,24 +133,24 @@ const ModulePage = () => {
               <table className="table">
                 <thead>
                   <tr>
-                    <th>#</th>
-                    <th>Title</th>
-                    {visibleCols.map(c => <th key={c.id}>{c.label}</th>)}
-                    <th>Created</th>
+                    <th style={{ whiteSpace: 'nowrap' }}>#</th>
+                    <th style={{ whiteSpace: 'nowrap' }}>Title</th>
+                    {visibleCols.map(c => <th key={c.id} style={{ whiteSpace: 'nowrap' }}>{c.label}</th>)}
+                    <th style={{ whiteSpace: 'nowrap' }}>Created</th>
                     <th></th>
                   </tr>
                 </thead>
                 <tbody>
                   {records.map(r => (
                     <tr key={r.id}>
-                      <td style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--color-text-3)' }}>
+                      <td style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--color-text-3)', whiteSpace: 'nowrap' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                           {r.parent_record_id && <GitBranch size={11} style={{ color: 'var(--color-secondary)' }} title="Auto-created by workflow" />}
                           {r.record_number}
                         </div>
                       </td>
-                      <td>
-                        <span style={{ fontWeight: 500, cursor: 'pointer' }}
+                      <td style={{ maxWidth: 180 }}>
+                        <span style={{ fontWeight: 500, cursor: 'pointer', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                           onClick={() => { setEditRecord(r); setShowModal(true); }}>
                           {r.title || '(No title)'}
                         </span>
@@ -138,14 +159,14 @@ const ModulePage = () => {
                         )}
                       </td>
                       {visibleCols.map(c => (
-                        <td key={c.id} style={{ maxWidth: 150 }}>
+                        <td key={c.id} style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {renderValue(r.data?.[c.name], c)}
                         </td>
                       ))}
                       <td style={{ fontSize: 11, color: 'var(--color-text-3)', whiteSpace: 'nowrap' }}>
                         {new Date(r.created_at).toLocaleDateString()}
                       </td>
-                      <td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
                         <div style={{ display: 'flex', gap: 4, opacity: 0 }} className="row-actions">
                           <button className="btn btn-ghost btn-sm btn-icon" onClick={() => { setEditRecord(r); setShowModal(true); }}>
                             <Edit size={13} />
@@ -197,14 +218,36 @@ const ModulePage = () => {
 const renderValue = (value, field) => {
   if (value === undefined || value === null || value === '') return <span style={{ color: 'var(--color-text-muted)' }}>—</span>;
   if (field.field_type === 'boolean') return value ? '✓' : '✗';
-  if (field.field_type === 'date') return new Date(value).toLocaleDateString();
+  if (field.field_type === 'date') {
+    try { return new Date(value).toLocaleDateString(); } catch { return value; }
+  }
+  if (field.field_type === 'datetime') {
+    try { return new Date(value).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }); } catch { return value; }
+  }
   if (field.field_type === 'currency') return <span style={{ fontFamily: 'monospace' }}>₹{Number(value).toLocaleString()}</span>;
-  if (field.name === 'status') {
+  if (field.name === 'status' || field.name === 'payment_status' || field.name === 'available') {
     const opt = field.options?.find(o => o.value === value);
-    return <span className="badge badge-default" style={{ fontSize: 10 }}>{opt?.label || value}</span>;
+    const label = opt?.label || value;
+    const colorMap = {
+      vacant: '#16a34a', occupied: '#dc2626', reserved: '#d97706', under_maintenance: '#6b7280', housekeeping: '#7c3aed',
+      checked_in: '#2563eb', checked_out: '#6b7280', cancelled: '#dc2626', no_show: '#9a3412',
+      paid: '#16a34a', unpaid: '#dc2626', partial: '#d97706', overdue: '#9a3412',
+      available: '#16a34a', unavailable: '#dc2626', seasonal: '#d97706',
+      complete: '#16a34a', pending: '#d97706', in_progress: '#2563eb',
+      converted: '#16a34a', new: '#6b7280', lost: '#dc2626',
+    };
+    return (
+      <span style={{
+        display: 'inline-block', padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600,
+        background: (colorMap[value] || '#6b7280') + '18',
+        color: colorMap[value] || '#6b7280',
+      }}>
+        {label}
+      </span>
+    );
   }
   const str = String(value);
-  return <span title={str}>{str.length > 30 ? str.substring(0,30)+'…' : str}</span>;
+  return <span title={str} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block', maxWidth: 150 }}>{str.length > 30 ? str.substring(0,30)+'…' : str}</span>;
 };
 
 export default ModulePage;
