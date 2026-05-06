@@ -125,7 +125,7 @@ const RecordModal = ({ moduleSlug, titleHeads, record, onClose, onSave }) => {
         update('total', total.toFixed(2));
       }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.amount, data.tax, moduleSlug]);
   }, [data.amount, data.tax]);
 
   const handlePrint = () => {
