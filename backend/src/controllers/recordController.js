@@ -2,7 +2,6 @@ const { query, getClient } = require('../config/database');
 const { asyncHandler, sendSuccess, getPagination, paginatedResponse } = require('../middleware/helpers');
 
 // ── Workflow rules per industry ───────────────────────────────────────────────
-// When a record's status changes to the trigger, auto-create a record in the next module
 const WORKFLOW_RULES = {
   manufacturing: [
     { fromSlug: 'crm',        triggerStatus: 'converted',  toSlug: 'sales',      copyFields: ['company_name','contact_name','phone','email'] },
@@ -16,13 +15,13 @@ const WORKFLOW_RULES = {
     { fromSlug: 'billing', triggerStatus: 'paid',      toSlug: 'reports', copyFields: ['client_name','total','payment_date'] },
   ],
   warehousing: [
-    { fromSlug: 'crm',       triggerStatus: 'converted', toSlug: 'storage',   copyFields: ['company_name','contact_name','phone','email','contract_value'] },
-    { fromSlug: 'storage',   triggerStatus: 'dispatched',toSlug: 'warehouse', copyFields: ['client_name','item_description','quantity','unit'] },
-    { fromSlug: 'warehouse', triggerStatus: 'complete',  toSlug: 'billing',   copyFields: ['client_name'] },
-    { fromSlug: 'billing',   triggerStatus: 'paid',      toSlug: 'reports',   copyFields: ['client_name','total','payment_date'] },
+    { fromSlug: 'crm',       triggerStatus: 'converted',  toSlug: 'storage',   copyFields: ['company_name','contact_name','phone','email','contract_value'] },
+    { fromSlug: 'storage',   triggerStatus: 'dispatched', toSlug: 'warehouse', copyFields: ['client_name','item_description','quantity','unit'] },
+    { fromSlug: 'warehouse', triggerStatus: 'complete',   toSlug: 'billing',   copyFields: ['client_name'] },
+    { fromSlug: 'billing',   triggerStatus: 'paid',       toSlug: 'reports',   copyFields: ['client_name','total','payment_date'] },
   ],
   hotel_restaurant: [
-    { fromSlug: 'crm', triggerStatus: 'converted', toSlug: 'bookings', copyFields: ['guest_name','phone','email','nationality','id_type','id_number','_allocated_room','_allocated_room_type','_allocated_rate'] },
+    { fromSlug: 'crm',      triggerStatus: 'converted',   toSlug: 'bookings', copyFields: ['guest_name','phone','email','nationality','id_type','id_number','_allocated_room','_allocated_room_type','_allocated_rate'] },
     { fromSlug: 'bookings', triggerStatus: 'checked_out', toSlug: 'billing',  copyFields: ['guest_name','phone','room_number','room_type','check_in_date','check_out_date','total_nights','room_amount','booking_source'] },
     { fromSlug: 'billing',  triggerStatus: 'paid',        toSlug: 'reports',  copyFields: ['guest_name','total','payment_date','bill_type'] },
   ],
@@ -52,7 +51,7 @@ const listRecords = asyncHandler(async (req, res) => {
   let params = [req.tenantId, moduleId];
   let idx = 3;
 
-  if (status)  { conditions.push(`(r.status=$${idx} OR r.data->>'status'=$${idx})`); params.push(status); idx++; }
+  if (status) { conditions.push(`(r.status=$${idx} OR r.data->>'status'=$${idx})`); params.push(status); idx++; }
   if (search)  { conditions.push(`(r.title ILIKE $${idx} OR r.record_number ILIKE $${idx})`); params.push(`%${search}%`); idx++; }
 
   const where = conditions.join(' AND ');
@@ -101,11 +100,13 @@ const createRecord = asyncHandler(async (req, res) => {
   const industryId = tenantR.rows[0].industry_id;
   const recordNumber = await generateRecordNumber(req.tenantId, moduleSlug);
 
-  const resolvedStatus = (data?.status) || status;
+  // Use data.status if present (e.g. room set to vacant), else fall back to status param
+  const resolvedStatus = (data && data.status) ? data.status : status;
+
   const r = await query(
     `INSERT INTO records (tenant_id, module_id, industry_id, record_number, title, data, status, assigned_to, created_by)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
-    [req.tenantId, modR.rows[0].id, industryId, recordNumber, title, JSON.stringify(data), data?.status || status, assignedTo || null, req.user.id]
+    [req.tenantId, modR.rows[0].id, industryId, recordNumber, title, JSON.stringify(data), resolvedStatus, assignedTo || null, req.user.id]
   );
 
   await query(
@@ -124,13 +125,19 @@ const updateRecord = asyncHandler(async (req, res) => {
   if (!oldR.rows[0]) return res.status(404).json({ success: false, message: 'Record not found' });
   const old = oldR.rows[0];
 
+  // Resolve the final status: prefer explicit status param, then data.status, then keep existing
+  const resolvedStatus = status || (data && data.status) || old.status;
+
   const r = await query(
     `UPDATE records SET
-       title=COALESCE($1,title), data=COALESCE($2::jsonb,data),
-       status=COALESCE($3, data->>'status', status), assigned_to=COALESCE($4,assigned_to),
-       updated_by=$5, updated_at=NOW()
+       title=COALESCE($1,title),
+       data=COALESCE($2::jsonb,data),
+       status=$3,
+       assigned_to=COALESCE($4,assigned_to),
+       updated_by=$5,
+       updated_at=NOW()
      WHERE id=$6 AND tenant_id=$7 RETURNING *`,
-    [title, data ? JSON.stringify(data) : null, status, assignedTo, req.user.id, req.params.id, req.tenantId]
+    [title, data ? JSON.stringify(data) : null, resolvedStatus, assignedTo, req.user.id, req.params.id, req.tenantId]
   );
 
   await query(
@@ -140,8 +147,8 @@ const updateRecord = asyncHandler(async (req, res) => {
   );
 
   // ── WORKFLOW: check if status change triggers auto-creation ──────────────
-  if (status && status !== old.status) {
-    await triggerWorkflow(req, r.rows[0], old.status, status);
+  if (resolvedStatus && resolvedStatus !== old.status) {
+    await triggerWorkflow(req, r.rows[0], old.status, resolvedStatus);
   }
 
   sendSuccess(res, r.rows[0], 'Record updated');
@@ -156,7 +163,6 @@ const deleteRecord = asyncHandler(async (req, res) => {
 // ── WORKFLOW ENGINE ────────────────────────────────────────────────────────────
 async function triggerWorkflow(req, record, oldStatus, newStatus) {
   try {
-    // Get industry slug
     const tenantR = await query(
       `SELECT i.slug AS industry_slug FROM tenants t JOIN industries i ON i.id=t.industry_id WHERE t.id=$1`,
       [req.tenantId]
@@ -172,7 +178,6 @@ async function triggerWorkflow(req, record, oldStatus, newStatus) {
     const rule = rules.find(r => r.fromSlug === fromSlug && r.triggerStatus === newStatus);
     if (!rule) return;
 
-    // Check if target module is enabled for this tenant
     const toModR = await query(
       `SELECT m.id FROM modules m
        JOIN tenant_modules tm ON tm.module_id=m.id
@@ -182,13 +187,19 @@ async function triggerWorkflow(req, record, oldStatus, newStatus) {
     if (!toModR.rows[0]) return;
     const toModuleId = toModR.rows[0].id;
 
-    // Copy specified fields from source record
     const copiedData = {};
     for (const field of rule.copyFields) {
       if (record.data[field] !== undefined) copiedData[field] = record.data[field];
     }
     copiedData['_linked_from'] = record.record_number;
     copiedData['_linked_record_id'] = record.id;
+
+    // For hotel bookings — pre-fill room from allocation
+    if (rule.toSlug === 'bookings' && record.data['_allocated_room']) {
+      copiedData['room_number'] = record.data['_allocated_room'];
+      copiedData['room_type']   = record.data['_allocated_room_type'];
+      copiedData['rate_per_night'] = record.data['_allocated_rate'];
+    }
 
     const newNumber = await generateRecordNumber(req.tenantId, rule.toSlug);
     const newTitle = `From ${record.record_number}${record.title ? ' — ' + record.title : ''}`;
@@ -199,7 +210,6 @@ async function triggerWorkflow(req, record, oldStatus, newStatus) {
       [req.tenantId, toModuleId, record.industry_id, newNumber, newTitle, JSON.stringify(copiedData), req.user.id, record.id, record.module_id]
     );
 
-    // Log workflow
     await query(
       `INSERT INTO workflow_log (tenant_id, from_record_id, to_record_id, from_module_id, to_module_id, trigger_status, triggered_by)
        VALUES ($1,$2,$3,$4,$5,$6,$7)`,

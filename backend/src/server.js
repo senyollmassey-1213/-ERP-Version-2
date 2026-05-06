@@ -40,6 +40,19 @@ app.use('/api/skus',           require('./routes/skus'));
 app.use(notFound);
 app.use(errorHandler);
 
+const runTenantInfoMigrations = async () => {
+  try {
+    await pool.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS address TEXT`);
+    await pool.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS gst_number VARCHAR(50)`);
+    await pool.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS phone VARCHAR(30)`);
+    await pool.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS website VARCHAR(255)`);
+    await pool.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS invoice_prefix VARCHAR(20) DEFAULT 'INV'`);
+    console.log('✅ Tenant info columns ready');
+  } catch (err) {
+    console.error('❌ Tenant info migration error:', err.message);
+  }
+};
+
 const runQRMigrations = async () => {
   try {
     await pool.query(`
@@ -84,6 +97,7 @@ app.listen(PORT, async () => {
   console.log('╚════════════════════════════════╝');
   console.log(`  Port : ${PORT}`);
   console.log(`  Env  : ${process.env.NODE_ENV || 'development'}\n`);
+  await runTenantInfoMigrations();
   await runQRMigrations();
 });
 

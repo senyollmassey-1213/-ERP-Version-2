@@ -41,8 +41,7 @@ const migrations = [
     name VARCHAR(100) NOT NULL,
     label VARCHAR(150) NOT NULL,
     field_type VARCHAR(50) NOT NULL DEFAULT 'text',
-    -- text | number | date | dropdown | boolean | currency | textarea | email | phone
-    options JSONB,           -- for dropdown: [{label,value}]
+    options JSONB,
     is_required BOOLEAN DEFAULT false,
     sort_order INT DEFAULT 0,
     is_active BOOLEAN DEFAULT true,
@@ -61,12 +60,19 @@ const migrations = [
     secondary_color VARCHAR(20) DEFAULT '#c75b39',
     subscription_plan VARCHAR(50) DEFAULT 'trial',
     is_active BOOLEAN DEFAULT true,
-    created_by_role VARCHAR(50),  -- 'super_admin' or 'client_servicing'
+    created_by_role VARCHAR(50),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
   )`,
 
-  // ── TENANT_MODULES: subset of industry modules enabled per tenant ─────────
+  // ── Add hotel/business info columns to tenants (safe, IF NOT EXISTS style)
+  `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS address TEXT`,
+  `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS gst_number VARCHAR(50)`,
+  `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS phone VARCHAR(30)`,
+  `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS website VARCHAR(255)`,
+  `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS invoice_prefix VARCHAR(20) DEFAULT 'INV'`,
+
+  // ── TENANT_MODULES ─────────────────────────────────────────────────────────
   `CREATE TABLE IF NOT EXISTS tenant_modules (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
@@ -80,14 +86,12 @@ const migrations = [
   `CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
-    -- NULL tenant_id = super_admin or client_servicing
     email VARCHAR(255) NOT NULL,
     password_hash TEXT NOT NULL,
     first_name VARCHAR(100),
     last_name VARCHAR(100),
     phone VARCHAR(20),
     role VARCHAR(50) NOT NULL DEFAULT 'user',
-    -- roles: super_admin | client_servicing | user_admin | user
     is_active BOOLEAN DEFAULT true,
     last_login_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -96,7 +100,7 @@ const migrations = [
     UNIQUE(email, tenant_id)
   )`,
 
-  // ── USER_MODULE_ACCESS: which modules a user can see (set by user_admin) ──
+  // ── USER_MODULE_ACCESS ────────────────────────────────────────────────────
   `CREATE TABLE IF NOT EXISTS user_module_access (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -106,7 +110,7 @@ const migrations = [
     UNIQUE(user_id, module_id)
   )`,
 
-  // ── RECORDS: all data for every module stored here ────────────────────────
+  // ── RECORDS ───────────────────────────────────────────────────────────────
   `CREATE TABLE IF NOT EXISTS records (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
@@ -116,18 +120,17 @@ const migrations = [
     title VARCHAR(255),
     data JSONB NOT NULL DEFAULT '{}',
     status VARCHAR(100) DEFAULT 'active',
-    -- workflow statuses: active|converted|confirmed|complete|billed|cancelled
     assigned_to UUID REFERENCES users(id),
     created_by UUID NOT NULL REFERENCES users(id),
     updated_by UUID REFERENCES users(id),
-    parent_record_id UUID REFERENCES records(id),  -- linked from workflow
-    source_module_id UUID REFERENCES modules(id),  -- which module triggered creation
+    parent_record_id UUID REFERENCES records(id),
+    source_module_id UUID REFERENCES modules(id),
     is_archived BOOLEAN DEFAULT false,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
   )`,
 
-  // ── WORKFLOW_LOG: tracks every status conversion and auto-creation ─────────
+  // ── WORKFLOW_LOG ──────────────────────────────────────────────────────────
   `CREATE TABLE IF NOT EXISTS workflow_log (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,

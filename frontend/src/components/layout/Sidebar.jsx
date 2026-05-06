@@ -33,13 +33,17 @@ const Sidebar = ({ collapsed, onToggle }) => {
     }
   }, [user]);
 
+  // tenant.features is set when creating the company { qr_scan: true, qr_generator: true }
+  const hasQRScan      = tenant?.features?.qr_scan      === true;
+  const hasQRGenerator = tenant?.features?.qr_generator === true;
+
   const platformNav = [
     { path: '/dashboard', icon: 'LayoutDashboard', label: 'Dashboard' },
     ...(isClientServicing ? [{ path: '/tenants', icon: 'Building2', label: 'Companies' }] : []),
     ...(isSuperAdmin ? [
-      { path: '/industries', icon: 'Shield', label: 'Industries' },
-      { path: '/platform-users', icon: 'UserCog', label: 'Platform Users' },
-      { path: '/qr-generate', icon: 'QrCode', label: 'QR Generator' },
+      { path: '/industries',      icon: 'Shield',           label: 'Industries' },
+      { path: '/platform-users',  icon: 'UserCog',          label: 'Platform Users' },
+      { path: '/qr-generate',     icon: 'QrCode',           label: 'QR Generator' },
     ] : []),
   ];
 
@@ -48,8 +52,10 @@ const Sidebar = ({ collapsed, onToggle }) => {
     ...modules
       .filter(m => m.slug !== 'dashboard' && m.slug !== 'reports')
       .map(m => ({ path: `/m/${m.slug}`, icon: m.icon || 'Package', label: m.name })),
-    { path: '/scan', icon: 'QrCode', label: 'Scan Item' },
-    ...(user?.role === 'user_admin'
+    // QR Scan — only if this tenant has it enabled
+    ...(hasQRScan ? [{ path: '/scan', icon: 'QrCode', label: 'Scan Item' }] : []),
+    // QR Generator — only if this tenant has it enabled AND user is admin
+    ...(hasQRGenerator && user?.role === 'user_admin'
       ? [{ path: '/qr-generate', icon: 'QrCode', label: 'QR Generator' }]
       : []),
     ...(modules.find(m => m.slug === 'reports')

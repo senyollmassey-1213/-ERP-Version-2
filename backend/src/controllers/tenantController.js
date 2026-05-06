@@ -40,7 +40,19 @@ const getTenant = asyncHandler(async (req, res) => {
   sendSuccess(res, r.rows[0]);
 });
 
-// Client Servicing creates a new client company
+// Get current tenant info (for tenant users to read their own hotel info)
+const getMyTenant = asyncHandler(async (req, res) => {
+  const r = await query(
+    `SELECT t.*, i.name AS industry_name, i.slug AS industry_slug
+     FROM tenants t
+     JOIN industries i ON i.id=t.industry_id
+     WHERE t.id=$1`,
+    [req.tenantId]
+  );
+  if (!r.rows[0]) return res.status(404).json({ success: false, message: 'Tenant not found' });
+  sendSuccess(res, r.rows[0]);
+});
+
 const createTenant = asyncHandler(async (req, res) => {
   const {
     name, slug, industryId, moduleIds = [],
@@ -55,7 +67,6 @@ const createTenant = asyncHandler(async (req, res) => {
   if (!/^[a-z0-9-]+$/.test(slug))
     return res.status(400).json({ success: false, message: 'Slug: lowercase letters, numbers, hyphens only' });
 
-  // Validate all selected modules belong to the industry
   if (moduleIds.length > 0) {
     const valid = await query(
       `SELECT module_id FROM industry_modules WHERE industry_id=$1 AND module_id = ANY($2::uuid[])`,
@@ -69,7 +80,6 @@ const createTenant = asyncHandler(async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // Create tenant
     const tr = await client.query(
       `INSERT INTO tenants (name, slug, industry_id, subscription_plan, created_by_role)
        VALUES ($1,$2,$3,$4,$5) RETURNING *`,
@@ -77,7 +87,6 @@ const createTenant = asyncHandler(async (req, res) => {
     );
     const tenant = tr.rows[0];
 
-    // Enable selected modules (always include dashboard)
     const dashboardR = await client.query(`SELECT id FROM modules WHERE slug='dashboard'`);
     const allModuleIds = [...new Set([dashboardR.rows[0]?.id, ...moduleIds].filter(Boolean))];
 
@@ -89,7 +98,6 @@ const createTenant = asyncHandler(async (req, res) => {
       );
     }
 
-    // Create User Admin
     const hash = await bcrypt.hash(adminPassword, 12);
     await client.query(
       `INSERT INTO users (tenant_id, email, password_hash, first_name, last_name, role)
@@ -108,18 +116,59 @@ const createTenant = asyncHandler(async (req, res) => {
 });
 
 const updateTenant = asyncHandler(async (req, res) => {
-  const { name, logoUrl, primaryColor, secondaryColor, subscriptionPlan, isActive } = req.body;
+  const {
+    name, logoUrl, primaryColor, secondaryColor,
+    subscriptionPlan, isActive,
+    // Hotel info fields
+    address, gstNumber, phone, website, invoicePrefix,
+  } = req.body;
+
   const r = await query(
     `UPDATE tenants SET
-       name=COALESCE($1,name), logo_url=COALESCE($2,logo_url),
-       primary_color=COALESCE($3,primary_color), secondary_color=COALESCE($4,secondary_color),
-       subscription_plan=COALESCE($5,subscription_plan), is_active=COALESCE($6,is_active),
+       name=COALESCE($1,name),
+       logo_url=COALESCE($2,logo_url),
+       primary_color=COALESCE($3,primary_color),
+       secondary_color=COALESCE($4,secondary_color),
+       subscription_plan=COALESCE($5,subscription_plan),
+       is_active=COALESCE($6,is_active),
+       address=COALESCE($7,address),
+       gst_number=COALESCE($8,gst_number),
+       phone=COALESCE($9,phone),
+       website=COALESCE($10,website),
+       invoice_prefix=COALESCE($11,invoice_prefix),
        updated_at=NOW()
-     WHERE id=$7 RETURNING *`,
-    [name, logoUrl, primaryColor, secondaryColor, subscriptionPlan, isActive, req.params.id]
+     WHERE id=$12 RETURNING *`,
+    [name, logoUrl, primaryColor, secondaryColor, subscriptionPlan, isActive,
+     address, gstNumber, phone, website, invoicePrefix,
+     req.params.id]
   );
   if (!r.rows[0]) return res.status(404).json({ success: false, message: 'Company not found' });
   sendSuccess(res, r.rows[0], 'Company updated');
+});
+
+// Update own tenant info (for user_admin to update hotel info)
+const updateMyTenant = asyncHandler(async (req, res) => {
+  const {
+    logoUrl, primaryColor, secondaryColor,
+    address, gstNumber, phone, website, invoicePrefix,
+  } = req.body;
+
+  const r = await query(
+    `UPDATE tenants SET
+       logo_url=COALESCE($1,logo_url),
+       primary_color=COALESCE($2,primary_color),
+       secondary_color=COALESCE($3,secondary_color),
+       address=COALESCE($4,address),
+       gst_number=COALESCE($5,gst_number),
+       phone=COALESCE($6,phone),
+       website=COALESCE($7,website),
+       invoice_prefix=COALESCE($8,invoice_prefix),
+       updated_at=NOW()
+     WHERE id=$9 RETURNING *`,
+    [logoUrl, primaryColor, secondaryColor, address, gstNumber, phone, website, invoicePrefix, req.tenantId]
+  );
+  if (!r.rows[0]) return res.status(404).json({ success: false, message: 'Tenant not found' });
+  sendSuccess(res, r.rows[0], 'Hotel info updated');
 });
 
 const deleteTenant = asyncHandler(async (req, res) => {
@@ -127,4 +176,4 @@ const deleteTenant = asyncHandler(async (req, res) => {
   sendSuccess(res, {}, 'Company deleted');
 });
 
-module.exports = { listTenants, getTenant, createTenant, updateTenant, deleteTenant };
+module.exports = { listTenants, getTenant, getMyTenant, createTenant, updateTenant, updateMyTenant, deleteTenant };

@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from 'context/AuthContext';
-import { moduleAPI, fieldAPI, userAPI, departmentAPI, tenantAPI } from 'services/api';
+import { moduleAPI, userAPI, departmentAPI, tenantAPI } from 'services/api';
 import {
-  Layout, Users, Building2, Palette, Plus, Trash2, Edit,
-  ChevronRight, ToggleLeft, ToggleRight, X, Save, Loader,
+  Layout, Users, Building2, Palette, Plus, Trash2,
+  ChevronRight, ToggleLeft, ToggleRight, X, Save, Loader, Hotel,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import FieldBuilder from 'components/builder/FieldBuilder';
@@ -13,21 +13,20 @@ const TABS = [
   { key: 'modules',     label: 'Modules',     icon: Layout },
   { key: 'users',       label: 'Users',        icon: Users },
   { key: 'departments', label: 'Departments',  icon: Building2 },
+  { key: 'hotelinfo',   label: 'Hotel Info',   icon: Hotel },
   { key: 'branding',    label: 'Branding',     icon: Palette },
 ];
 
 const Settings = () => {
-  const { isUserAdmin, isSuperAdmin, tenant, updateUser, user } = useAuth();
+  const { isUserAdmin, isSuperAdmin, tenant } = useAuth();
   const [activeTab, setActiveTab] = useState('modules');
-  const [modules, setModules]       = useState([]);
-  const [users, setUsers]           = useState([]);
-  const [departments, setDeps]      = useState([]);
-  const [loading, setLoading]       = useState(false);
+  const [modules, setModules]     = useState([]);
+  const [users, setUsers]         = useState([]);
+  const [departments, setDeps]    = useState([]);
+  const [loading, setLoading]     = useState(false);
   const [selectedModule, setSelectedModule] = useState(null);
 
-  useEffect(() => {
-    loadTab(activeTab);
-  }, [activeTab]);
+  useEffect(() => { loadTab(activeTab); }, [activeTab]);
 
   const loadTab = async (tab) => {
     setLoading(true);
@@ -51,9 +50,7 @@ const Settings = () => {
       await moduleAPI.toggle(mod.id, !mod.is_enabled);
       toast.success(`${mod.display_name || mod.name} ${!mod.is_enabled ? 'enabled' : 'disabled'}`);
       loadTab('modules');
-    } catch (err) {
-      toast.error(err.message);
-    }
+    } catch (err) { toast.error(err.message); }
   };
 
   if (!isUserAdmin && !isSuperAdmin) {
@@ -97,6 +94,9 @@ const Settings = () => {
             {activeTab === 'departments' && (
               <DepartmentsTab departments={departments} onRefresh={() => loadTab('departments')} />
             )}
+            {activeTab === 'hotelinfo' && (
+              <HotelInfoTab />
+            )}
             {activeTab === 'branding' && (
               <BrandingTab tenant={tenant} />
             )}
@@ -136,15 +136,159 @@ const ModulesTab = ({ modules, onToggle, onSelectModule }) => (
                 {mod.is_enabled ? <ToggleRight size={22} /> : <ToggleLeft size={22} />}
               </button>
             )}
-            {mod.is_core && (
-              <span className="badge badge-info">Core</span>
-            )}
+            {mod.is_core && <span className="badge badge-info">Core</span>}
           </div>
         </div>
       ))}
     </div>
   </div>
 );
+
+// ─── Hotel Info Tab ───────────────────────────────────────────────────────────
+const HotelInfoTab = () => {
+  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [form, setForm] = useState({
+    name: '',
+    address: '',
+    phone: '',
+    website: '',
+    gstNumber: '',
+    invoicePrefix: 'INV',
+    logoUrl: '',
+    primaryColor: '#0b1628',
+    secondaryColor: '#c75b39',
+  });
+
+  useEffect(() => {
+    tenantAPI.getMyInfo().then(res => {
+      if (res.success && res.data) {
+        const d = res.data;
+        setForm({
+          name: d.name || '',
+          address: d.address || '',
+          phone: d.phone || '',
+          website: d.website || '',
+          gstNumber: d.gst_number || '',
+          invoicePrefix: d.invoice_prefix || 'INV',
+          logoUrl: d.logo_url || '',
+          primaryColor: d.primary_color || '#0b1628',
+          secondaryColor: d.secondary_color || '#c75b39',
+        });
+      }
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  const handleSave = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const res = await tenantAPI.updateMyInfo({
+        address: form.address,
+        gstNumber: form.gstNumber,
+        phone: form.phone,
+        website: form.website,
+        invoicePrefix: form.invoicePrefix,
+        logoUrl: form.logoUrl,
+      });
+      if (res.success) toast.success('Hotel info saved');
+    } catch (err) {
+      toast.error(err.message);
+    }
+    setSaving(false);
+  };
+
+  if (loading) return <div className="page-loader"><div className="spinner" /></div>;
+
+  return (
+    <div>
+      <div className="settings-section-header">
+        <div>
+          <h3>Hotel / Business Information</h3>
+          <p>This information appears on printed invoices and bills.</p>
+        </div>
+      </div>
+
+      <div className="card" style={{ maxWidth: 560 }}>
+        <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+          <div className="form-group">
+            <label className="form-label">Hotel / Business Name</label>
+            <input className="form-input" value={form.name} disabled
+              style={{ background: 'var(--color-surface-2)', color: 'var(--color-text-3)' }} />
+            <span className="form-hint">Name is set by platform admin. Contact support to change.</span>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Address</label>
+            <textarea className="form-textarea" rows={3} value={form.address}
+              onChange={e => setForm({ ...form, address: e.target.value })}
+              placeholder="Full address including city, state, pincode" />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="form-group">
+              <label className="form-label">Phone Number</label>
+              <input className="form-input" value={form.phone}
+                onChange={e => setForm({ ...form, phone: e.target.value })}
+                placeholder="+91 XXXXX XXXXX" />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Website</label>
+              <input className="form-input" value={form.website}
+                onChange={e => setForm({ ...form, website: e.target.value })}
+                placeholder="www.yourhotel.com" />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="form-group">
+              <label className="form-label">GST Number</label>
+              <input className="form-input" value={form.gstNumber}
+                onChange={e => setForm({ ...form, gstNumber: e.target.value.toUpperCase() })}
+                placeholder="22AAAAA0000A1Z5"
+                style={{ fontFamily: 'monospace' }} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Invoice Prefix</label>
+              <input className="form-input" value={form.invoicePrefix}
+                onChange={e => setForm({ ...form, invoicePrefix: e.target.value.toUpperCase() })}
+                placeholder="INV"
+                style={{ fontFamily: 'monospace' }}
+                maxLength={10} />
+              <span className="form-hint">Bills will be numbered: {form.invoicePrefix || 'INV'}-00001</span>
+            </div>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Logo URL</label>
+            <input className="form-input" value={form.logoUrl}
+              onChange={e => setForm({ ...form, logoUrl: e.target.value })}
+              placeholder="https://yourdomain.com/logo.png" />
+            {form.logoUrl && (
+              <div style={{ marginTop: 8 }}>
+                <img src={form.logoUrl} alt="Logo preview"
+                  style={{ height: 48, objectFit: 'contain', border: '1px solid var(--color-border)', borderRadius: 6, padding: 4 }}
+                  onError={e => e.target.style.display = 'none'} />
+              </div>
+            )}
+          </div>
+
+          <div style={{ padding: '12px 16px', background: 'var(--color-surface-2)', borderRadius: 'var(--radius-md)', fontSize: 12, color: 'var(--color-text-3)' }}>
+            <strong>Preview on invoice:</strong><br />
+            {form.name} · {form.phone} · {form.gstNumber && `GST: ${form.gstNumber}`}
+            {form.address && <><br />{form.address}</>}
+          </div>
+
+          <button type="submit" className="btn btn-primary" disabled={saving} style={{ alignSelf: 'flex-start' }}>
+            {saving ? <Loader size={14} className="animate-spin" /> : <Save size={14} />}
+            {saving ? 'Saving...' : 'Save Hotel Info'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+};
 
 // ─── Users Tab ────────────────────────────────────────────────────────────────
 const UsersTab = ({ users, onRefresh }) => {
@@ -174,9 +318,7 @@ const UsersTab = ({ users, onRefresh }) => {
       await userAPI.delete(id);
       toast.success('User deleted');
       onRefresh();
-    } catch (err) {
-      toast.error(err.message);
-    }
+    } catch (err) { toast.error(err.message); }
   };
 
   return (
@@ -309,9 +451,7 @@ const DepartmentsTab = ({ departments, onRefresh }) => {
           </div>
         ))}
         {departments.length === 0 && (
-          <div className="empty-state" style={{ gridColumn: '1/-1' }}>
-            <p>No departments yet</p>
-          </div>
+          <div className="empty-state" style={{ gridColumn: '1/-1' }}><p>No departments yet</p></div>
         )}
       </div>
 
@@ -350,8 +490,6 @@ const DepartmentsTab = ({ departments, onRefresh }) => {
 // ─── Branding Tab ─────────────────────────────────────────────────────────────
 const BrandingTab = ({ tenant }) => {
   const [form, setForm] = useState({
-    name: tenant?.name || '',
-    industry: tenant?.industry || '',
     primaryColor: tenant?.primaryColor || '#0b1628',
     secondaryColor: tenant?.secondaryColor || '#c75b39',
   });
@@ -361,10 +499,10 @@ const BrandingTab = ({ tenant }) => {
     e.preventDefault();
     setSaving(true);
     try {
-      // Apply colors immediately
       document.documentElement.style.setProperty('--color-primary', form.primaryColor);
       document.documentElement.style.setProperty('--color-secondary', form.secondaryColor);
-      toast.success('Branding updated (colors applied live)');
+      await tenantAPI.updateMyInfo({ primaryColor: form.primaryColor, secondaryColor: form.secondaryColor });
+      toast.success('Branding updated');
     } catch {}
     setSaving(false);
   };
@@ -377,17 +515,8 @@ const BrandingTab = ({ tenant }) => {
           <p>Customize how your ERP looks for your team.</p>
         </div>
       </div>
-
       <div className="card" style={{ maxWidth: 480 }}>
         <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div className="form-group">
-            <label className="form-label">Company Name</label>
-            <input className="form-input" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Industry</label>
-            <input className="form-input" placeholder="e.g. Manufacturing, Hospital..." value={form.industry} onChange={e => setForm({...form, industry: e.target.value})} />
-          </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div className="form-group">
               <label className="form-label">Primary Color</label>

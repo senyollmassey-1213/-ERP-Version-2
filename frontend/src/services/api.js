@@ -52,6 +52,9 @@ export const tenantAPI = {
   update: (id, d) => api.put(`/tenants/${id}`, d),
   delete: (id) => api.delete(`/tenants/${id}`),
   resolveBranding: (slug) => api.get(`/auth/tenant/${slug}`),
+  // Hotel info (tenant self-service)
+  getMyInfo: () => api.get('/tenants/my/info'),
+  updateMyInfo: (d) => api.put('/tenants/my/info', d),
 };
 
 export const userAPI = {
