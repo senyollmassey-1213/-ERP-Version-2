@@ -273,7 +273,7 @@ ${d.remarks?`<p style="margin-top:16px;font-size:12px;color:#718096">Note: ${d.r
 
               <div className="form-group">
                 <label className="form-label">Title *</label>
-                <input className="form-input" value={title} onChange={e => setTitle(e.target.value)} placeholder="Record title..." required />
+                <input className="form-input" value={title} onChange={e => setTitle(e.target.value)} placeholder="Record title (optional)" />
               </div>
 
               {statusField && (

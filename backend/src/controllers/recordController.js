@@ -1,7 +1,6 @@
 const { query, getClient } = require('../config/database');
 const { asyncHandler, sendSuccess, getPagination, paginatedResponse } = require('../middleware/helpers');
 
-// ── Workflow rules per industry ───────────────────────────────────────────────
 const WORKFLOW_RULES = {
   manufacturing: [
     { fromSlug: 'crm',        triggerStatus: 'converted',  toSlug: 'sales',      copyFields: ['company_name','contact_name','phone','email'] },
@@ -30,9 +29,7 @@ const WORKFLOW_RULES = {
 const generateRecordNumber = async (tenantId, moduleSlug) => {
   const prefix = moduleSlug.toUpperCase().substring(0, 4);
   const r = await query(
-    `SELECT COUNT(*) FROM records r
-     JOIN modules m ON m.id=r.module_id
-     WHERE r.tenant_id=$1 AND m.slug=$2`,
+    `SELECT COUNT(*) FROM records r JOIN modules m ON m.id=r.module_id WHERE r.tenant_id=$1 AND m.slug=$2`,
     [tenantId, moduleSlug]
   );
   return `${prefix}-${String(parseInt(r.rows[0].count) + 1).padStart(5, '0')}`;
@@ -73,8 +70,7 @@ const getRecord = asyncHandler(async (req, res) => {
     `SELECT r.*, m.name AS module_name, m.slug AS module_slug,
             u.first_name||' '||u.last_name AS assigned_to_name,
             cu.first_name||' '||cu.last_name AS created_by_name
-     FROM records r
-     JOIN modules m ON m.id=r.module_id
+     FROM records r JOIN modules m ON m.id=r.module_id
      LEFT JOIN users u ON u.id=r.assigned_to
      LEFT JOIN users cu ON cu.id=r.created_by
      WHERE r.id=$1 AND r.tenant_id=$2`,
@@ -89,8 +85,7 @@ const createRecord = asyncHandler(async (req, res) => {
   const { title, data = {}, status = 'active', assignedTo } = req.body;
 
   const modR = await query(
-    `SELECT m.id, m.slug FROM modules m
-     JOIN tenant_modules tm ON tm.module_id=m.id
+    `SELECT m.id, m.slug FROM modules m JOIN tenant_modules tm ON tm.module_id=m.id
      WHERE m.slug=$1 AND tm.tenant_id=$2 AND tm.is_enabled=true`,
     [moduleSlug, req.tenantId]
   );
@@ -99,8 +94,6 @@ const createRecord = asyncHandler(async (req, res) => {
   const tenantR = await query(`SELECT industry_id FROM tenants WHERE id=$1`, [req.tenantId]);
   const industryId = tenantR.rows[0].industry_id;
   const recordNumber = await generateRecordNumber(req.tenantId, moduleSlug);
-
-  // Use data.status if present (e.g. room set to vacant), else fall back to status param
   const resolvedStatus = (data && data.status) ? data.status : status;
 
   const r = await query(
@@ -110,8 +103,7 @@ const createRecord = asyncHandler(async (req, res) => {
   );
 
   await query(
-    `INSERT INTO audit_logs (tenant_id, user_id, action, entity_type, entity_id, new_data)
-     VALUES ($1,$2,'created','record',$3,$4)`,
+    `INSERT INTO audit_logs (tenant_id, user_id, action, entity_type, entity_id, new_data) VALUES ($1,$2,'created','record',$3,$4)`,
     [req.tenantId, req.user.id, r.rows[0].id, JSON.stringify(data)]
   );
 
@@ -125,28 +117,22 @@ const updateRecord = asyncHandler(async (req, res) => {
   if (!oldR.rows[0]) return res.status(404).json({ success: false, message: 'Record not found' });
   const old = oldR.rows[0];
 
-  // Resolve the final status: prefer explicit status param, then data.status, then keep existing
-  const resolvedStatus = status || (data && data.status) || old.status;
+  // data.status always takes priority — it's what the user set in the form dropdown
+  const resolvedStatus = (data && data.status) ? data.status : (status || old.status);
 
   const r = await query(
     `UPDATE records SET
-       title=COALESCE($1,title),
-       data=COALESCE($2::jsonb,data),
-       status=$3,
-       assigned_to=COALESCE($4,assigned_to),
-       updated_by=$5,
-       updated_at=NOW()
+       title=COALESCE($1,title), data=COALESCE($2::jsonb,data), status=$3,
+       assigned_to=COALESCE($4,assigned_to), updated_by=$5, updated_at=NOW()
      WHERE id=$6 AND tenant_id=$7 RETURNING *`,
     [title, data ? JSON.stringify(data) : null, resolvedStatus, assignedTo, req.user.id, req.params.id, req.tenantId]
   );
 
   await query(
-    `INSERT INTO audit_logs (tenant_id, user_id, action, entity_type, entity_id, old_data, new_data)
-     VALUES ($1,$2,'updated','record',$3,$4,$5)`,
+    `INSERT INTO audit_logs (tenant_id, user_id, action, entity_type, entity_id, old_data, new_data) VALUES ($1,$2,'updated','record',$3,$4,$5)`,
     [req.tenantId, req.user.id, req.params.id, old.data, JSON.stringify(data || {})]
   );
 
-  // ── WORKFLOW: check if status change triggers auto-creation ──────────────
   if (resolvedStatus && resolvedStatus !== old.status) {
     await triggerWorkflow(req, r.rows[0], old.status, resolvedStatus);
   }
@@ -155,10 +141,31 @@ const updateRecord = asyncHandler(async (req, res) => {
 });
 
 const deleteRecord = asyncHandler(async (req, res) => {
-  await query(`UPDATE records SET is_archived=true, updated_at=NOW() WHERE id=$1 AND tenant_id=$2`,
-    [req.params.id, req.tenantId]);
+  await query(`UPDATE records SET is_archived=true, updated_at=NOW() WHERE id=$1 AND tenant_id=$2`, [req.params.id, req.tenantId]);
   sendSuccess(res, {}, 'Record deleted');
 });
+
+// ── Update room status helper ─────────────────────────────────────────────────
+async function updateRoomStatus(tenantId, roomNumber, newStatus) {
+  try {
+    const roomModR = await query(`SELECT id FROM modules WHERE slug='rooms'`);
+    if (!roomModR.rows[0]) return;
+    const roomR = await query(
+      `SELECT id, data FROM records WHERE tenant_id=$1 AND module_id=$2 AND data->>'room_number'=$3 AND is_archived=false`,
+      [tenantId, roomModR.rows[0].id, String(roomNumber)]
+    );
+    if (roomR.rows[0]) {
+      const updatedData = { ...roomR.rows[0].data, status: newStatus };
+      await query(
+        `UPDATE records SET status=$1, data=$2::jsonb, updated_at=NOW() WHERE id=$3`,
+        [newStatus, JSON.stringify(updatedData), roomR.rows[0].id]
+      );
+      console.log(`  🛏 Room ${roomNumber} → ${newStatus}`);
+    }
+  } catch (err) {
+    console.error('Room status update error:', err.message);
+  }
+}
 
 // ── WORKFLOW ENGINE ────────────────────────────────────────────────────────────
 async function triggerWorkflow(req, record, oldStatus, newStatus) {
@@ -170,17 +177,23 @@ async function triggerWorkflow(req, record, oldStatus, newStatus) {
     if (!tenantR.rows[0]) return;
     const industrySlug = tenantR.rows[0].industry_slug;
 
-    const rules = WORKFLOW_RULES[industrySlug] || [];
     const fromModR = await query(`SELECT slug FROM modules WHERE id=$1`, [record.module_id]);
     if (!fromModR.rows[0]) return;
     const fromSlug = fromModR.rows[0].slug;
 
+    // Hotel room status automation
+    if (industrySlug === 'hotel_restaurant' && fromSlug === 'bookings') {
+      if (newStatus === 'checked_in'  && record.data?.room_number) await updateRoomStatus(req.tenantId, record.data.room_number, 'occupied');
+      if (newStatus === 'checked_out' && record.data?.room_number) await updateRoomStatus(req.tenantId, record.data.room_number, 'vacant');
+      if (newStatus === 'cancelled'   && record.data?.room_number) await updateRoomStatus(req.tenantId, record.data.room_number, 'vacant');
+    }
+
+    const rules = WORKFLOW_RULES[industrySlug] || [];
     const rule = rules.find(r => r.fromSlug === fromSlug && r.triggerStatus === newStatus);
     if (!rule) return;
 
     const toModR = await query(
-      `SELECT m.id FROM modules m
-       JOIN tenant_modules tm ON tm.module_id=m.id
+      `SELECT m.id FROM modules m JOIN tenant_modules tm ON tm.module_id=m.id
        WHERE m.slug=$1 AND tm.tenant_id=$2 AND tm.is_enabled=true`,
       [rule.toSlug, req.tenantId]
     );
@@ -194,10 +207,9 @@ async function triggerWorkflow(req, record, oldStatus, newStatus) {
     copiedData['_linked_from'] = record.record_number;
     copiedData['_linked_record_id'] = record.id;
 
-    // For hotel bookings — pre-fill room from allocation
     if (rule.toSlug === 'bookings' && record.data['_allocated_room']) {
-      copiedData['room_number'] = record.data['_allocated_room'];
-      copiedData['room_type']   = record.data['_allocated_room_type'];
+      copiedData['room_number']    = record.data['_allocated_room'];
+      copiedData['room_type']      = record.data['_allocated_room_type'];
       copiedData['rate_per_night'] = record.data['_allocated_rate'];
     }
 
@@ -211,8 +223,7 @@ async function triggerWorkflow(req, record, oldStatus, newStatus) {
     );
 
     await query(
-      `INSERT INTO workflow_log (tenant_id, from_record_id, to_record_id, from_module_id, to_module_id, trigger_status, triggered_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      `INSERT INTO workflow_log (tenant_id, from_record_id, to_record_id, from_module_id, to_module_id, trigger_status, triggered_by) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       [req.tenantId, record.id, newRecR.rows[0].id, record.module_id, toModuleId, newStatus, req.user.id]
     );
 
@@ -228,12 +239,9 @@ const getRecordStats = asyncHandler(async (req, res) => {
   if (!modR.rows[0]) return res.status(404).json({ success: false, message: 'Module not found' });
 
   const r = await query(
-    `SELECT status, COUNT(*) AS count FROM records
-     WHERE tenant_id=$1 AND module_id=$2 AND is_archived=false
-     GROUP BY status`,
+    `SELECT status, COUNT(*) AS count FROM records WHERE tenant_id=$1 AND module_id=$2 AND is_archived=false GROUP BY status`,
     [req.tenantId, modR.rows[0].id]
   );
-
   const totR = await query(
     `SELECT COUNT(*) AS total,
        COUNT(*) FILTER (WHERE created_at >= NOW()-INTERVAL '30 days') AS this_month,

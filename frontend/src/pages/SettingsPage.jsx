@@ -1,12 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Settings, UserCog, X, Save, Loader, Trash2, Key, Eye, EyeOff } from 'lucide-react';
-import { userAPI, moduleAPI } from 'services/api';
+import { Plus, Settings, UserCog, X, Save, Loader, Trash2, Key, Eye, EyeOff, Hotel } from 'lucide-react';
+import { userAPI, moduleAPI, tenantAPI } from 'services/api';
 import { useAuth } from 'context/AuthContext';
 import toast from 'react-hot-toast';
 
 const SettingsPage = () => {
   const { user: me } = useAuth();
   const [tab, setTab] = useState('users');
+
+  const TABS = [
+    { key: 'users',     label: 'Users' },
+    { key: 'hotelinfo', label: 'Hotel Info' },
+    { key: 'profile',   label: 'My Profile' },
+  ];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -18,7 +24,7 @@ const SettingsPage = () => {
       </div>
 
       <div style={{ display: 'flex', gap: 4, background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', padding: 4, width: 'fit-content' }}>
-        {[{ key: 'users', label: 'Users' }, { key: 'profile', label: 'My Profile' }].map(t => (
+        {TABS.map(t => (
           <button key={t.key} className={`btn btn-sm ${tab === t.key ? 'btn-primary' : 'btn-ghost'}`}
             onClick={() => setTab(t.key)}>
             {t.label}
@@ -26,8 +32,147 @@ const SettingsPage = () => {
         ))}
       </div>
 
-      {tab === 'users'   && <UsersTab currentUser={me} />}
-      {tab === 'profile' && <ProfileTab />}
+      {tab === 'users'     && <UsersTab currentUser={me} />}
+      {tab === 'hotelinfo' && <HotelInfoTab />}
+      {tab === 'profile'   && <ProfileTab />}
+    </div>
+  );
+};
+
+// ── Hotel Info Tab ────────────────────────────────────────────────────────────
+const HotelInfoTab = () => {
+  const [saving, setSaving]   = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [form, setForm] = useState({
+    address: '', phone: '', website: '',
+    gstNumber: '', invoicePrefix: 'INV', logoUrl: '',
+  });
+  const [hotelName, setHotelName] = useState('');
+
+  useEffect(() => {
+    tenantAPI.getMyInfo().then(res => {
+      if (res.success && res.data) {
+        const d = res.data;
+        setHotelName(d.name || '');
+        setForm({
+          address:       d.address       || '',
+          phone:         d.phone         || '',
+          website:       d.website       || '',
+          gstNumber:     d.gst_number    || '',
+          invoicePrefix: d.invoice_prefix || 'INV',
+          logoUrl:       d.logo_url      || '',
+        });
+      }
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  const handleSave = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const res = await tenantAPI.updateMyInfo({
+        address:       form.address,
+        gstNumber:     form.gstNumber,
+        phone:         form.phone,
+        website:       form.website,
+        invoicePrefix: form.invoicePrefix,
+        logoUrl:       form.logoUrl,
+      });
+      if (res.success) toast.success('Hotel info saved');
+    } catch (err) {
+      toast.error(err.message);
+    }
+    setSaving(false);
+  };
+
+  if (loading) return <div className="page-loader"><div className="spinner" /></div>;
+
+  return (
+    <div>
+      <div style={{ marginBottom: 16 }}>
+        <h3 style={{ fontSize: 15 }}>Hotel / Business Information</h3>
+        <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 2 }}>
+          This information appears on printed invoices and bills.
+        </p>
+      </div>
+
+      <div className="card" style={{ maxWidth: 560 }}>
+        <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+          <div className="form-group">
+            <label className="form-label">Hotel / Business Name</label>
+            <input className="form-input" value={hotelName} disabled
+              style={{ background: 'var(--color-surface-2)', color: 'var(--color-text-3)' }} />
+            <span className="form-hint">Contact platform admin to change the name.</span>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Address</label>
+            <textarea className="form-textarea" rows={3} value={form.address}
+              onChange={e => setForm({ ...form, address: e.target.value })}
+              placeholder="Full address including city, state, pincode" />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="form-group">
+              <label className="form-label">Phone Number</label>
+              <input className="form-input" value={form.phone}
+                onChange={e => setForm({ ...form, phone: e.target.value })}
+                placeholder="+91 XXXXX XXXXX" />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Website</label>
+              <input className="form-input" value={form.website}
+                onChange={e => setForm({ ...form, website: e.target.value })}
+                placeholder="www.yourhotel.com" />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="form-group">
+              <label className="form-label">GST Number</label>
+              <input className="form-input" value={form.gstNumber}
+                onChange={e => setForm({ ...form, gstNumber: e.target.value.toUpperCase() })}
+                placeholder="22AAAAA0000A1Z5"
+                style={{ fontFamily: 'monospace' }} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Invoice Prefix</label>
+              <input className="form-input" value={form.invoicePrefix}
+                onChange={e => setForm({ ...form, invoicePrefix: e.target.value.toUpperCase() })}
+                placeholder="INV" maxLength={10}
+                style={{ fontFamily: 'monospace' }} />
+              <span className="form-hint">Bills: {form.invoicePrefix || 'INV'}-00001</span>
+            </div>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Logo URL</label>
+            <input className="form-input" value={form.logoUrl}
+              onChange={e => setForm({ ...form, logoUrl: e.target.value })}
+              placeholder="https://yourdomain.com/logo.png" />
+            {form.logoUrl && (
+              <div style={{ marginTop: 8 }}>
+                <img src={form.logoUrl} alt="Logo preview"
+                  style={{ height: 48, objectFit: 'contain', border: '1px solid var(--color-border)', borderRadius: 6, padding: 4 }}
+                  onError={e => e.target.style.display = 'none'} />
+              </div>
+            )}
+          </div>
+
+          {/* Preview */}
+          <div style={{ padding: '12px 16px', background: 'var(--color-surface-2)', borderRadius: 'var(--radius-md)', fontSize: 12, color: 'var(--color-text-3)', lineHeight: 1.8 }}>
+            <strong style={{ color: 'var(--color-text-2)' }}>Invoice preview:</strong><br />
+            <strong>{hotelName}</strong>{form.phone ? ` · ${form.phone}` : ''}{form.gstNumber ? ` · GST: ${form.gstNumber}` : ''}<br />
+            {form.address && <span>{form.address}</span>}
+          </div>
+
+          <button type="submit" className="btn btn-primary" disabled={saving} style={{ alignSelf: 'flex-start' }}>
+            {saving ? <Loader size={14} className="animate-spin" /> : <Save size={14} />}
+            {saving ? 'Saving...' : 'Save Hotel Info'}
+          </button>
+        </form>
+      </div>
     </div>
   );
 };
@@ -38,7 +183,7 @@ const UsersTab = ({ currentUser }) => {
   const [modules, setModules]     = useState([]);
   const [loading, setLoading]     = useState(true);
   const [showCreate, setShowCreate] = useState(false);
-  const [accessUser, setAccessUser] = useState(null); // user whose module access we're editing
+  const [accessUser, setAccessUser] = useState(null);
 
   const load = async () => {
     setLoading(true);
@@ -131,19 +276,12 @@ const UsersTab = ({ currentUser }) => {
       )}
 
       {showCreate && (
-        <CreateUserModal
-          onClose={() => setShowCreate(false)}
-          onSave={() => { setShowCreate(false); load(); }}
-        />
+        <CreateUserModal onClose={() => setShowCreate(false)} onSave={() => { setShowCreate(false); load(); }} />
       )}
-
       {accessUser && (
-        <ModuleAccessModal
-          user={accessUser}
-          allModules={modules}
+        <ModuleAccessModal user={accessUser} allModules={modules}
           onClose={() => setAccessUser(null)}
-          onSave={() => { setAccessUser(null); toast.success('Module access updated'); }}
-        />
+          onSave={() => { setAccessUser(null); toast.success('Module access updated'); }} />
       )}
     </>
   );
@@ -219,8 +357,8 @@ const CreateUserModal = ({ onClose, onSave }) => {
 
 // ── Module Access Modal ───────────────────────────────────────────────────────
 const ModuleAccessModal = ({ user, allModules, onClose, onSave }) => {
-  const [access, setAccess]   = useState([]);
-  const [saving, setSaving]   = useState(false);
+  const [access, setAccess]         = useState([]);
+  const [saving, setSaving]         = useState(false);
   const [loadingAcc, setLoadingAcc] = useState(true);
 
   useEffect(() => {
@@ -234,7 +372,6 @@ const ModuleAccessModal = ({ user, allModules, onClose, onSave }) => {
       } catch {}
       setLoadingAcc(false);
     };
-    // If no access records yet, default all to visible
     if (allModules.length) {
       setAccess(allModules.map(m => ({ moduleId: m.id, name: m.name, isVisible: true })));
       load();
@@ -243,9 +380,7 @@ const ModuleAccessModal = ({ user, allModules, onClose, onSave }) => {
     }
   }, [user.id, allModules]);
 
-  const toggle = (moduleId) => {
-    setAccess(prev => prev.map(a => a.moduleId === moduleId ? { ...a, isVisible: !a.isVisible } : a));
-  };
+  const toggle = (moduleId) => setAccess(prev => prev.map(a => a.moduleId === moduleId ? { ...a, isVisible: !a.isVisible } : a));
 
   const handleSave = async () => {
     setSaving(true);
@@ -269,9 +404,7 @@ const ModuleAccessModal = ({ user, allModules, onClose, onSave }) => {
         <div className="modal-body">
           {loadingAcc ? <div className="page-loader"><div className="spinner" /></div> : (
             <>
-              <p style={{ fontSize: 13, color: 'var(--color-text-2)', marginBottom: 14 }}>
-                Toggle which modules this user can see in their sidebar.
-              </p>
+              <p style={{ fontSize: 13, color: 'var(--color-text-2)', marginBottom: 14 }}>Toggle which modules this user can see.</p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {access.map(a => (
                   <label key={a.moduleId} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', border: `1.5px solid ${a.isVisible ? 'var(--color-secondary)' : 'var(--color-border)'}`, borderRadius: 'var(--radius-md)', cursor: 'pointer', background: a.isVisible ? '#fff7ed' : 'var(--color-surface)', transition: 'var(--transition)' }}>
@@ -301,9 +434,9 @@ const ModuleAccessModal = ({ user, allModules, onClose, onSave }) => {
 // ── Profile Tab ───────────────────────────────────────────────────────────────
 const ProfileTab = () => {
   const { user, logout } = useAuth();
-  const [saving, setSaving] = useState(false);
+  const [saving, setSaving]       = useState(false);
   const [changingPw, setChangingPw] = useState(false);
-  const [form, setForm] = useState({ firstName: user?.firstName || '', lastName: user?.lastName || '', phone: '' });
+  const [form, setForm]   = useState({ firstName: user?.firstName || '', lastName: user?.lastName || '', phone: '' });
   const [pwForm, setPwForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
 
   const saveProfile = async (e) => {
