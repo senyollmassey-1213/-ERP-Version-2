@@ -125,8 +125,7 @@ const RecordModal = ({ moduleSlug, titleHeads, record, onClose, onSave }) => {
         update('total', total.toFixed(2));
       }
     }
-  }, [data.amount, data.tax, moduleSlug]);
-  }, [data.amount, data.tax]);
+  , [data.amount, data.tax, moduleSlug]);
 
   const handlePrint = () => {
     const hotel = hotelInfo || {};
