@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Save, Loader, GitBranch, BedDouble, CheckCircle, AlertCircle, Printer, MessageCircle } from 'lucide-react';
-import { recordAPI, tenantAPI } from 'services/api';
+import { recordAPI, tenantAPI, userAPI } from 'services/api';
 import { useAuth } from 'context/AuthContext';
 import toast from 'react-hot-toast';
 
@@ -26,7 +26,7 @@ const RecordModal = ({ moduleSlug, titleHeads, record, onClose, onSave }) => {
   }, [record]);
 
   useEffect(() => {
-    if (moduleSlug === 'billing') {
+    if (moduleSlug === 'billing' || moduleSlug === 'housekeeping') {
       tenantAPI.getMyInfo().then(res => {
         if (res.success) setHotelInfo(res.data);
       }).catch(() => {});
@@ -35,7 +35,6 @@ const RecordModal = ({ moduleSlug, titleHeads, record, onClose, onSave }) => {
 
   const statusField = titleHeads.find(t => t.name === 'status');
   const otherFields = titleHeads.filter(t => t.name !== 'status' && !t.name.startsWith('_'));
-
   const update = (name, val) => setData(prev => ({ ...prev, [name]: val }));
 
   const handleStatusChange = (newStatus) => {
@@ -115,17 +114,30 @@ const RecordModal = ({ moduleSlug, titleHeads, record, onClose, onSave }) => {
     }
   }, [moduleSlug, isEdit, hotelInfo]);
 
-  // Auto-calculate total from amount + tax
   useEffect(() => {
     if (moduleSlug === 'billing') {
       const amount = parseFloat(data.amount) || 0;
       const tax = parseFloat(data.tax) || 0;
-      if (amount > 0) {
-        const total = amount + (amount * tax / 100);
-        update('total', total.toFixed(2));
-      }
+      if (amount > 0) update('total', (amount + (amount * tax / 100)).toFixed(2));
     }
-}, [data.amount, data.tax, moduleSlug]);
+  }, [data.amount, data.tax, moduleSlug]);
+
+  // WhatsApp for housekeeping staff
+  const handleHousekeepingWhatsApp = () => {
+    const staffSettings = hotelInfo?.staff_settings || {};
+    const staffPhone = data.assigned_to_phone || '';
+    const msg = encodeURIComponent(
+      `🧹 *Housekeeping Task*\n\n` +
+      `Room: *${data.room_number || '—'}*\n` +
+      `Task: ${data.task_type?.replace(/_/g,' ') || 'Cleaning'}\n` +
+      `Date: ${data.scheduled_date || 'Today'}\n` +
+      `Booking: ${data.linked_booking || '—'}\n` +
+      `${data.notes ? 'Note: ' + data.notes : ''}\n\n` +
+      `Please confirm once done. — ${hotelInfo?.name || 'Hotel'}`
+    );
+    const phone = staffPhone.replace(/[^0-9]/g, '');
+    window.open(`https://wa.me/${phone ? '91' + phone.slice(-10) : ''}?text=${msg}`, '_blank');
+  };
 
   const handlePrint = () => {
     const hotel = hotelInfo || {};
@@ -230,8 +242,9 @@ ${d.remarks?`<p style="margin-top:16px;font-size:12px;color:#718096">Note: ${d.r
   };
 
   const modName = moduleSlug.charAt(0).toUpperCase() + moduleSlug.slice(1);
-  const isBookingsModule = moduleSlug === 'bookings';
-  const isBillingModule  = moduleSlug === 'billing';
+  const isBookingsModule    = moduleSlug === 'bookings';
+  const isBillingModule     = moduleSlug === 'billing';
+  const isHousekeepingModule = moduleSlug === 'housekeeping';
   const showUTR = isBillingModule && UTR_METHODS.includes(data.payment_method);
 
   return (
@@ -250,6 +263,11 @@ ${d.remarks?`<p style="margin-top:16px;font-size:12px;color:#718096">Note: ${d.r
                     <Printer size={14} /> Print
                   </button>
                 </>
+              )}
+              {isHousekeepingModule && isEdit && (
+                <button type="button" className="btn btn-secondary btn-sm" onClick={handleHousekeepingWhatsApp} title="Notify staff via WhatsApp">
+                  <MessageCircle size={14} /> Notify Staff
+                </button>
               )}
               <button className="btn btn-ghost btn-icon" onClick={onClose}><X size={17} /></button>
             </div>
@@ -270,11 +288,6 @@ ${d.remarks?`<p style="margin-top:16px;font-size:12px;color:#718096">Note: ${d.r
                   Room {data._allocated_room} ({data._allocated_room_type}) allocated
                 </div>
               )}
-
-              <div className="form-group">
-                <label className="form-label">Title *</label>
-                <input className="form-input" value={title} onChange={e => setTitle(e.target.value)} placeholder="Record title (optional)" />
-              </div>
 
               {statusField && (
                 <div className="form-group">
@@ -397,8 +410,7 @@ const RoomPickerModal = ({ guestName, onConfirm, onCancel }) => {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div className="form-group">
               <label className="form-label">Number of Guests</label>
-              <input type="number" className="form-input" min={1} max={20} value={numGuests}
-                onChange={e => setNumGuests(parseInt(e.target.value) || 1)} />
+              <input type="number" className="form-input" min={1} max={20} value={numGuests} onChange={e => setNumGuests(parseInt(e.target.value) || 1)} />
             </div>
             <div className="form-group">
               <label className="form-label">Preferred Room Type</label>

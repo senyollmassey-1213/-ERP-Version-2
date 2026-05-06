@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Settings, UserCog, X, Save, Loader, Trash2, Key, Eye, EyeOff, Hotel } from 'lucide-react';
+import { Plus, Settings, X, Save, Loader, Trash2, Key, Eye, EyeOff } from 'lucide-react';
 import { userAPI, moduleAPI, tenantAPI } from 'services/api';
 import { useAuth } from 'context/AuthContext';
 import toast from 'react-hot-toast';
@@ -18,15 +18,12 @@ const SettingsPage = () => {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div>
         <h2 style={{ fontSize: 20 }}>Settings</h2>
-        <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 2 }}>
-          Manage users and their module access
-        </p>
+        <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 2 }}>Manage users and their module access</p>
       </div>
 
       <div style={{ display: 'flex', gap: 4, background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', padding: 4, width: 'fit-content' }}>
         {TABS.map(t => (
-          <button key={t.key} className={`btn btn-sm ${tab === t.key ? 'btn-primary' : 'btn-ghost'}`}
-            onClick={() => setTab(t.key)}>
+          <button key={t.key} className={`btn btn-sm ${tab === t.key ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setTab(t.key)}>
             {t.label}
           </button>
         ))}
@@ -43,26 +40,34 @@ const SettingsPage = () => {
 const HotelInfoTab = () => {
   const [saving, setSaving]   = useState(false);
   const [loading, setLoading] = useState(true);
+  const [users, setUsers]     = useState([]);
+  const [hotelName, setHotelName] = useState('');
   const [form, setForm] = useState({
     address: '', phone: '', website: '',
     gstNumber: '', invoicePrefix: 'INV', logoUrl: '',
+    defaultHousekeepingUserId: '',
   });
-  const [hotelName, setHotelName] = useState('');
 
   useEffect(() => {
-    tenantAPI.getMyInfo().then(res => {
-      if (res.success && res.data) {
-        const d = res.data;
+    Promise.all([
+      tenantAPI.getMyInfo(),
+      userAPI.list({ limit: 100 }),
+    ]).then(([tenantRes, usersRes]) => {
+      if (tenantRes.success && tenantRes.data) {
+        const d = tenantRes.data;
+        const ss = d.staff_settings || {};
         setHotelName(d.name || '');
         setForm({
-          address:       d.address       || '',
-          phone:         d.phone         || '',
-          website:       d.website       || '',
-          gstNumber:     d.gst_number    || '',
-          invoicePrefix: d.invoice_prefix || 'INV',
-          logoUrl:       d.logo_url      || '',
+          address:                    d.address        || '',
+          phone:                      d.phone          || '',
+          website:                    d.website        || '',
+          gstNumber:                  d.gst_number     || '',
+          invoicePrefix:              d.invoice_prefix || 'INV',
+          logoUrl:                    d.logo_url       || '',
+          defaultHousekeepingUserId:  ss.default_housekeeping_user_id || '',
         });
       }
+      if (usersRes.success) setUsers(usersRes.data);
     }).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
@@ -70,6 +75,9 @@ const HotelInfoTab = () => {
     e.preventDefault();
     setSaving(true);
     try {
+      const staffSettings = {
+        default_housekeeping_user_id: form.defaultHousekeepingUserId || null,
+      };
       const res = await tenantAPI.updateMyInfo({
         address:       form.address,
         gstNumber:     form.gstNumber,
@@ -77,11 +85,10 @@ const HotelInfoTab = () => {
         website:       form.website,
         invoicePrefix: form.invoicePrefix,
         logoUrl:       form.logoUrl,
+        staffSettings,
       });
       if (res.success) toast.success('Hotel info saved');
-    } catch (err) {
-      toast.error(err.message);
-    }
+    } catch (err) { toast.error(err.message); }
     setSaving(false);
   };
 
@@ -91,9 +98,7 @@ const HotelInfoTab = () => {
     <div>
       <div style={{ marginBottom: 16 }}>
         <h3 style={{ fontSize: 15 }}>Hotel / Business Information</h3>
-        <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 2 }}>
-          This information appears on printed invoices and bills.
-        </p>
+        <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 2 }}>Appears on invoices and used for auto-assignments.</p>
       </div>
 
       <div className="card" style={{ maxWidth: 560 }}>
@@ -101,9 +106,8 @@ const HotelInfoTab = () => {
 
           <div className="form-group">
             <label className="form-label">Hotel / Business Name</label>
-            <input className="form-input" value={hotelName} disabled
-              style={{ background: 'var(--color-surface-2)', color: 'var(--color-text-3)' }} />
-            <span className="form-hint">Contact platform admin to change the name.</span>
+            <input className="form-input" value={hotelName} disabled style={{ background: 'var(--color-surface-2)', color: 'var(--color-text-3)' }} />
+            <span className="form-hint">Contact platform admin to change.</span>
           </div>
 
           <div className="form-group">
@@ -116,15 +120,11 @@ const HotelInfoTab = () => {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div className="form-group">
               <label className="form-label">Phone Number</label>
-              <input className="form-input" value={form.phone}
-                onChange={e => setForm({ ...form, phone: e.target.value })}
-                placeholder="+91 XXXXX XXXXX" />
+              <input className="form-input" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="+91 XXXXX XXXXX" />
             </div>
             <div className="form-group">
               <label className="form-label">Website</label>
-              <input className="form-input" value={form.website}
-                onChange={e => setForm({ ...form, website: e.target.value })}
-                placeholder="www.yourhotel.com" />
+              <input className="form-input" value={form.website} onChange={e => setForm({ ...form, website: e.target.value })} placeholder="www.yourhotel.com" />
             </div>
           </div>
 
@@ -133,24 +133,20 @@ const HotelInfoTab = () => {
               <label className="form-label">GST Number</label>
               <input className="form-input" value={form.gstNumber}
                 onChange={e => setForm({ ...form, gstNumber: e.target.value.toUpperCase() })}
-                placeholder="22AAAAA0000A1Z5"
-                style={{ fontFamily: 'monospace' }} />
+                placeholder="22AAAAA0000A1Z5" style={{ fontFamily: 'monospace' }} />
             </div>
             <div className="form-group">
               <label className="form-label">Invoice Prefix</label>
               <input className="form-input" value={form.invoicePrefix}
                 onChange={e => setForm({ ...form, invoicePrefix: e.target.value.toUpperCase() })}
-                placeholder="INV" maxLength={10}
-                style={{ fontFamily: 'monospace' }} />
+                placeholder="INV" maxLength={10} style={{ fontFamily: 'monospace' }} />
               <span className="form-hint">Bills: {form.invoicePrefix || 'INV'}-00001</span>
             </div>
           </div>
 
           <div className="form-group">
             <label className="form-label">Logo URL</label>
-            <input className="form-input" value={form.logoUrl}
-              onChange={e => setForm({ ...form, logoUrl: e.target.value })}
-              placeholder="https://yourdomain.com/logo.png" />
+            <input className="form-input" value={form.logoUrl} onChange={e => setForm({ ...form, logoUrl: e.target.value })} placeholder="https://yourdomain.com/logo.png" />
             {form.logoUrl && (
               <div style={{ marginTop: 8 }}>
                 <img src={form.logoUrl} alt="Logo preview"
@@ -158,6 +154,24 @@ const HotelInfoTab = () => {
                   onError={e => e.target.style.display = 'none'} />
               </div>
             )}
+          </div>
+
+          {/* Housekeeping Staff Assignment */}
+          <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 16 }}>
+            <h4 style={{ fontSize: 13, marginBottom: 12, color: 'var(--color-text-2)' }}>🧹 Housekeeping Assignment</h4>
+            <div className="form-group">
+              <label className="form-label">Default Housekeeping Staff</label>
+              <select className="form-select" value={form.defaultHousekeepingUserId}
+                onChange={e => setForm({ ...form, defaultHousekeepingUserId: e.target.value })}>
+                <option value="">None (assign manually)</option>
+                {users.map(u => (
+                  <option key={u.id} value={u.id}>
+                    {u.first_name} {u.last_name} ({u.role.replace('_',' ')})
+                  </option>
+                ))}
+              </select>
+              <span className="form-hint">This person gets auto-assigned when a guest checks out and a cleaning task is created.</span>
+            </div>
           </div>
 
           {/* Preview */}
@@ -179,9 +193,9 @@ const HotelInfoTab = () => {
 
 // ── Users Tab ─────────────────────────────────────────────────────────────────
 const UsersTab = ({ currentUser }) => {
-  const [users, setUsers]         = useState([]);
-  const [modules, setModules]     = useState([]);
-  const [loading, setLoading]     = useState(true);
+  const [users, setUsers]           = useState([]);
+  const [modules, setModules]       = useState([]);
+  const [loading, setLoading]       = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [accessUser, setAccessUser] = useState(null);
 
@@ -212,17 +226,13 @@ const UsersTab = ({ currentUser }) => {
     <>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={{ fontSize: 13, color: 'var(--color-text-3)' }}>{users.length} users in this company</span>
-        <button className="btn btn-primary" onClick={() => setShowCreate(true)}>
-          <Plus size={14} /> Add User
-        </button>
+        <button className="btn btn-primary" onClick={() => setShowCreate(true)}><Plus size={14} /> Add User</button>
       </div>
 
       {loading ? <div className="page-loader"><div className="spinner" /></div> : (
         <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
           <table className="table">
-            <thead>
-              <tr><th>User</th><th>Email</th><th>Role</th><th>Status</th><th>Last Login</th><th>Actions</th></tr>
-            </thead>
+            <thead><tr><th>User</th><th>Email</th><th>Role</th><th>Status</th><th>Last Login</th><th>Actions</th></tr></thead>
             <tbody>
               {users.map(u => (
                 <tr key={u.id}>
@@ -238,11 +248,7 @@ const UsersTab = ({ currentUser }) => {
                     </div>
                   </td>
                   <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{u.email}</td>
-                  <td>
-                    <span className={`badge ${u.role === 'user_admin' ? 'badge-warning' : 'badge-default'}`}>
-                      {u.role.replace(/_/g,' ')}
-                    </span>
-                  </td>
+                  <td><span className={`badge ${u.role === 'user_admin' ? 'badge-warning' : 'badge-default'}`}>{u.role.replace(/_/g,' ')}</span></td>
                   <td>
                     <button className={`badge ${u.is_active ? 'badge-success' : 'badge-default'}`}
                       style={{ border: 'none', cursor: u.id !== currentUser?.id ? 'pointer' : 'default' }}
@@ -255,41 +261,29 @@ const UsersTab = ({ currentUser }) => {
                   </td>
                   <td>
                     <div style={{ display: 'flex', gap: 4 }}>
-                      <button className="btn btn-secondary btn-sm" onClick={() => setAccessUser(u)} title="Manage module access">
-                        <Settings size={12} /> Modules
-                      </button>
+                      <button className="btn btn-secondary btn-sm" onClick={() => setAccessUser(u)}><Settings size={12} /> Modules</button>
                       {u.id !== currentUser?.id && (
-                        <button className="btn btn-ghost btn-sm btn-icon" onClick={() => handleDelete(u.id, u.email)}>
-                          <Trash2 size={13} />
-                        </button>
+                        <button className="btn btn-ghost btn-sm btn-icon" onClick={() => handleDelete(u.id, u.email)}><Trash2 size={13} /></button>
                       )}
                     </div>
                   </td>
                 </tr>
               ))}
-              {!users.length && (
-                <tr><td colSpan={6}><div className="empty-state" style={{ height: 80 }}><p>No users yet</p></div></td></tr>
-              )}
+              {!users.length && <tr><td colSpan={6}><div className="empty-state" style={{ height: 80 }}><p>No users yet</p></div></td></tr>}
             </tbody>
           </table>
         </div>
       )}
 
-      {showCreate && (
-        <CreateUserModal onClose={() => setShowCreate(false)} onSave={() => { setShowCreate(false); load(); }} />
-      )}
-      {accessUser && (
-        <ModuleAccessModal user={accessUser} allModules={modules}
-          onClose={() => setAccessUser(null)}
-          onSave={() => { setAccessUser(null); toast.success('Module access updated'); }} />
-      )}
+      {showCreate && <CreateUserModal onClose={() => setShowCreate(false)} onSave={() => { setShowCreate(false); load(); }} />}
+      {accessUser && <ModuleAccessModal user={accessUser} allModules={modules} onClose={() => setAccessUser(null)} onSave={() => { setAccessUser(null); toast.success('Module access updated'); }} />}
     </>
   );
 };
 
 // ── Create User Modal ─────────────────────────────────────────────────────────
 const CreateUserModal = ({ onClose, onSave }) => {
-  const [saving, setSaving] = useState(false);
+  const [saving, setSaving]   = useState(false);
   const [showPass, setShowPass] = useState(false);
   const [form, setForm] = useState({ firstName: '', lastName: '', email: '', password: '', role: 'user' });
 
@@ -312,14 +306,8 @@ const CreateUserModal = ({ onClose, onSave }) => {
         </div>
         <form onSubmit={handleSubmit}>
           <div className="modal-body" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 13 }}>
-            <div className="form-group">
-              <label className="form-label">First Name</label>
-              <input className="form-input" value={form.firstName} onChange={e => setForm(f => ({ ...f, firstName: e.target.value }))} />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Last Name</label>
-              <input className="form-input" value={form.lastName} onChange={e => setForm(f => ({ ...f, lastName: e.target.value }))} />
-            </div>
+            <div className="form-group"><label className="form-label">First Name</label><input className="form-input" value={form.firstName} onChange={e => setForm(f => ({ ...f, firstName: e.target.value }))} /></div>
+            <div className="form-group"><label className="form-label">Last Name</label><input className="form-input" value={form.lastName} onChange={e => setForm(f => ({ ...f, lastName: e.target.value }))} /></div>
             <div className="form-group" style={{ gridColumn: '1/-1' }}>
               <label className="form-label">Email *</label>
               <input type="email" className="form-input" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} required />
@@ -327,8 +315,7 @@ const CreateUserModal = ({ onClose, onSave }) => {
             <div className="form-group" style={{ gridColumn: '1/-1' }}>
               <label className="form-label">Password *</label>
               <div className="input-icon-wrap">
-                <input type={showPass ? 'text' : 'password'} className="form-input" value={form.password}
-                  onChange={e => setForm(f => ({ ...f, password: e.target.value }))} required minLength={8} />
+                <input type={showPass ? 'text' : 'password'} className="form-input" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} required minLength={8} />
                 <button type="button" className="input-icon-btn" onClick={() => setShowPass(!showPass)}>
                   {showPass ? <EyeOff size={14} /> : <Eye size={14} />}
                 </button>
@@ -372,12 +359,8 @@ const ModuleAccessModal = ({ user, allModules, onClose, onSave }) => {
       } catch {}
       setLoadingAcc(false);
     };
-    if (allModules.length) {
-      setAccess(allModules.map(m => ({ moduleId: m.id, name: m.name, isVisible: true })));
-      load();
-    } else {
-      setLoadingAcc(false);
-    }
+    if (allModules.length) { setAccess(allModules.map(m => ({ moduleId: m.id, name: m.name, isVisible: true }))); load(); }
+    else setLoadingAcc(false);
   }, [user.id, allModules]);
 
   const toggle = (moduleId) => setAccess(prev => prev.map(a => a.moduleId === moduleId ? { ...a, isVisible: !a.isVisible } : a));
@@ -410,9 +393,7 @@ const ModuleAccessModal = ({ user, allModules, onClose, onSave }) => {
                   <label key={a.moduleId} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', border: `1.5px solid ${a.isVisible ? 'var(--color-secondary)' : 'var(--color-border)'}`, borderRadius: 'var(--radius-md)', cursor: 'pointer', background: a.isVisible ? '#fff7ed' : 'var(--color-surface)', transition: 'var(--transition)' }}>
                     <input type="checkbox" checked={a.isVisible} onChange={() => toggle(a.moduleId)} />
                     <span style={{ fontSize: 13, fontWeight: 500 }}>{a.name}</span>
-                    <span style={{ marginLeft: 'auto', fontSize: 11, color: a.isVisible ? 'var(--color-secondary)' : 'var(--color-text-muted)' }}>
-                      {a.isVisible ? 'Visible' : 'Hidden'}
-                    </span>
+                    <span style={{ marginLeft: 'auto', fontSize: 11, color: a.isVisible ? 'var(--color-secondary)' : 'var(--color-text-muted)' }}>{a.isVisible ? 'Visible' : 'Hidden'}</span>
                   </label>
                 ))}
               </div>
@@ -433,7 +414,7 @@ const ModuleAccessModal = ({ user, allModules, onClose, onSave }) => {
 
 // ── Profile Tab ───────────────────────────────────────────────────────────────
 const ProfileTab = () => {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const [saving, setSaving]       = useState(false);
   const [changingPw, setChangingPw] = useState(false);
   const [form, setForm]   = useState({ firstName: user?.firstName || '', lastName: user?.lastName || '', phone: '' });
@@ -468,26 +449,16 @@ const ProfileTab = () => {
       <div className="card">
         <h3 style={{ fontSize: 14, marginBottom: 16 }}>Profile Information</h3>
         <form onSubmit={saveProfile} style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
-          <div className="form-group">
-            <label className="form-label">First Name</label>
-            <input className="form-input" value={form.firstName} onChange={e => setForm(f => ({ ...f, firstName: e.target.value }))} />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Last Name</label>
-            <input className="form-input" value={form.lastName} onChange={e => setForm(f => ({ ...f, lastName: e.target.value }))} />
-          </div>
+          <div className="form-group"><label className="form-label">First Name</label><input className="form-input" value={form.firstName} onChange={e => setForm(f => ({ ...f, firstName: e.target.value }))} /></div>
+          <div className="form-group"><label className="form-label">Last Name</label><input className="form-input" value={form.lastName} onChange={e => setForm(f => ({ ...f, lastName: e.target.value }))} /></div>
           <div className="form-group">
             <label className="form-label">Email</label>
             <input className="form-input" value={user?.email} disabled style={{ background: 'var(--color-surface-2)', color: 'var(--color-text-3)' }} />
             <span className="form-hint">Email cannot be changed</span>
           </div>
-          <div className="form-group">
-            <label className="form-label">Phone</label>
-            <input type="tel" className="form-input" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="+91 XXXXX XXXXX" />
-          </div>
+          <div className="form-group"><label className="form-label">Phone</label><input type="tel" className="form-input" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="+91 XXXXX XXXXX" /></div>
           <button type="submit" className="btn btn-primary" disabled={saving}>
-            {saving ? <Loader size={14} className="animate-spin" /> : <Save size={14} />}
-            {saving ? 'Saving...' : 'Save Profile'}
+            {saving ? <Loader size={14} className="animate-spin" /> : <Save size={14} />} {saving ? 'Saving...' : 'Save Profile'}
           </button>
         </form>
       </div>
@@ -498,13 +469,11 @@ const ProfileTab = () => {
           {['currentPassword','newPassword','confirmPassword'].map((key, i) => (
             <div key={key} className="form-group">
               <label className="form-label">{['Current Password','New Password','Confirm New Password'][i]}</label>
-              <input type="password" className="form-input" value={pwForm[key]}
-                onChange={e => setPwForm(f => ({ ...f, [key]: e.target.value }))} required minLength={key !== 'currentPassword' ? 8 : 1} />
+              <input type="password" className="form-input" value={pwForm[key]} onChange={e => setPwForm(f => ({ ...f, [key]: e.target.value }))} required minLength={key !== 'currentPassword' ? 8 : 1} />
             </div>
           ))}
           <button type="submit" className="btn btn-primary" disabled={changingPw}>
-            {changingPw ? <Loader size={14} className="animate-spin" /> : <Key size={14} />}
-            {changingPw ? 'Changing...' : 'Change Password'}
+            {changingPw ? <Loader size={14} className="animate-spin" /> : <Key size={14} />} {changingPw ? 'Changing...' : 'Change Password'}
           </button>
         </form>
       </div>

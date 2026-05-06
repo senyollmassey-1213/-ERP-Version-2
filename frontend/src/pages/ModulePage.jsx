@@ -7,16 +7,28 @@ import toast from 'react-hot-toast';
 import RecordModal from 'components/modules/RecordModal';
 import QRButton from 'components/qr/QRButton';
 
-// Columns to show per module slug
+// Primary display field per module — shown instead of Title
+const MODULE_PRIMARY_FIELD = {
+  crm:          'guest_name',
+  bookings:     'guest_name',
+  rooms:        null, // use title (Sea View etc.)
+  billing:      'guest_name',
+  housekeeping: 'room_number',
+  transport:    'guest_name',
+  menu:         'item_name',
+  inventory:    'item_name',
+};
+
+// Columns to show per module
 const MODULE_COLUMNS = {
-  bookings:     ['guest_name', 'room_number', 'check_in_date', 'check_out_date', 'status'],
+  bookings:     ['room_number', 'check_in_date', 'check_out_date', 'status'],
   rooms:        ['room_number', 'room_type', 'floor', 'capacity', 'status'],
-  billing:      ['guest_name', 'bill_type', 'total', 'payment_status'],
-  crm:          ['guest_name', 'phone', 'email', 'status'],
-  housekeeping: ['room_number', 'task_type', 'assigned_to', 'status'],
-  transport:    ['guest_name', 'transport_type', 'pickup_datetime', 'status'],
-  menu:         ['item_name', 'category', 'price', 'available'],
-  inventory:    ['item_name', 'category', 'quantity', 'unit'],
+  billing:      ['bill_type', 'total', 'payment_status'],
+  crm:          ['phone', 'email', 'status'],
+  housekeeping: ['task_type', 'assigned_to', 'scheduled_date', 'status'],
+  transport:    ['transport_type', 'pickup_datetime', 'status'],
+  menu:         ['category', 'price', 'available'],
+  inventory:    ['category', 'quantity', 'unit'],
 };
 
 const ModulePage = () => {
@@ -24,8 +36,6 @@ const ModulePage = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-
-  // Read status from URL query param (e.g. /m/rooms?status=vacant)
   const queryStatus = new URLSearchParams(location.search).get('status') || '';
 
   const [titleHeads, setTitleHeads] = useState([]);
@@ -71,17 +81,19 @@ const ModulePage = () => {
   const statusField = titleHeads.find(t => t.name === 'status');
   const statusOptions = statusField?.options || [];
 
-  // Determine which columns to show
   const preferredCols = MODULE_COLUMNS[moduleSlug];
   const visibleCols = preferredCols
     ? titleHeads.filter(t => preferredCols.includes(t.name)).sort((a, b) => preferredCols.indexOf(a.name) - preferredCols.indexOf(b.name))
     : titleHeads.slice(0, 4);
 
+  const primaryFieldName = MODULE_PRIMARY_FIELD[moduleSlug];
+  const primaryFieldHead = primaryFieldName ? titleHeads.find(t => t.name === primaryFieldName) : null;
+  const primaryLabel = primaryFieldHead?.label || (moduleSlug === 'rooms' ? 'Room' : 'Name');
+
   const moduleName = moduleSlug.charAt(0).toUpperCase() + moduleSlug.slice(1);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
         <div>
           <h2 style={{ fontSize: 20, marginBottom: 4 }}>{moduleName}</h2>
@@ -101,7 +113,6 @@ const ModulePage = () => {
         </button>
       </div>
 
-      {/* Toolbar */}
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 13px', background: 'var(--color-surface)', border: '1.5px solid var(--color-border)', borderRadius: 'var(--radius-md)', flex: 1, maxWidth: 360 }}>
           <Search size={14} style={{ color: 'var(--color-text-3)', flexShrink: 0 }} />
@@ -110,14 +121,14 @@ const ModulePage = () => {
             onChange={e => { setSearch(e.target.value); setPage(1); }} />
         </div>
         {statusOptions.length > 0 && (
-          <select className="form-select" style={{ width: 'auto' }} value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setPage(1); }}>
+          <select className="form-select" style={{ width: 'auto' }} value={filterStatus}
+            onChange={e => { setFilterStatus(e.target.value); setPage(1); }}>
             <option value="">All Status</option>
             {statusOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         )}
       </div>
 
-      {/* Table */}
       {loading ? (
         <div className="page-loader"><div className="spinner" /></div>
       ) : (
@@ -134,57 +145,60 @@ const ModulePage = () => {
                 <thead>
                   <tr>
                     <th style={{ whiteSpace: 'nowrap' }}>#</th>
-                    <th style={{ whiteSpace: 'nowrap' }}>Title</th>
+                    <th style={{ whiteSpace: 'nowrap' }}>{primaryLabel}</th>
                     {visibleCols.map(c => <th key={c.id} style={{ whiteSpace: 'nowrap' }}>{c.label}</th>)}
                     <th style={{ whiteSpace: 'nowrap' }}>Created</th>
                     <th></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {records.map(r => (
-                    <tr key={r.id}>
-                      <td style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--color-text-3)', whiteSpace: 'nowrap' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                          {r.parent_record_id && <GitBranch size={11} style={{ color: 'var(--color-secondary)' }} title="Auto-created by workflow" />}
-                          {r.record_number}
-                        </div>
-                      </td>
-                      <td style={{ maxWidth: 180 }}>
-                        <span style={{ fontWeight: 500, cursor: 'pointer', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                          onClick={() => { setEditRecord(r); setShowModal(true); }}>
-                          {r.title || '(No title)'}
-                        </span>
-                        {r.data?._linked_from && (
-                          <div style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>from {r.data._linked_from}</div>
-                        )}
-                      </td>
-                      {visibleCols.map(c => (
-                        <td key={c.id} style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {renderValue(r.data?.[c.name], c)}
+                  {records.map(r => {
+                    // Primary display value
+                    const primaryValue = primaryFieldName
+                      ? (r.data?.[primaryFieldName] || r.title || '(No name)')
+                      : (r.title || '(No title)');
+
+                    return (
+                      <tr key={r.id}>
+                        <td style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--color-text-3)', whiteSpace: 'nowrap' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            {r.parent_record_id && <GitBranch size={11} style={{ color: 'var(--color-secondary)' }} title="Auto-created by workflow" />}
+                            {r.record_number}
+                          </div>
                         </td>
-                      ))}
-                      <td style={{ fontSize: 11, color: 'var(--color-text-3)', whiteSpace: 'nowrap' }}>
-                        {new Date(r.created_at).toLocaleDateString()}
-                      </td>
-                      <td style={{ whiteSpace: 'nowrap' }}>
-                        <div style={{ display: 'flex', gap: 4, opacity: 0 }} className="row-actions">
-                          <button className="btn btn-ghost btn-sm btn-icon" onClick={() => { setEditRecord(r); setShowModal(true); }}>
-                            <Edit size={13} />
-                          </button>
-                          {moduleSlug === 'inventory' && (
-                            <QRButton
-                              recordId={r.id}
-                              moduleSlug={moduleSlug}
-                              canGenerate={user?.role === 'user_admin'}
-                            />
+                        <td style={{ maxWidth: 200 }}>
+                          <span style={{ fontWeight: 500, cursor: 'pointer', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                            onClick={() => { setEditRecord(r); setShowModal(true); }}>
+                            {primaryValue}
+                          </span>
+                          {r.data?._linked_from && (
+                            <div style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>from {r.data._linked_from}</div>
                           )}
-                          <button className="btn btn-ghost btn-sm btn-icon" onClick={() => handleDelete(r.id)}>
-                            <Trash2 size={13} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        {visibleCols.map(c => (
+                          <td key={c.id} style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {renderValue(r.data?.[c.name], c)}
+                          </td>
+                        ))}
+                        <td style={{ fontSize: 11, color: 'var(--color-text-3)', whiteSpace: 'nowrap' }}>
+                          {new Date(r.created_at).toLocaleDateString()}
+                        </td>
+                        <td style={{ whiteSpace: 'nowrap' }}>
+                          <div style={{ display: 'flex', gap: 4, opacity: 0 }} className="row-actions">
+                            <button className="btn btn-ghost btn-sm btn-icon" onClick={() => { setEditRecord(r); setShowModal(true); }}>
+                              <Edit size={13} />
+                            </button>
+                            {moduleSlug === 'inventory' && (
+                              <QRButton recordId={r.id} moduleSlug={moduleSlug} canGenerate={user?.role === 'user_admin'} />
+                            )}
+                            <button className="btn btn-ghost btn-sm btn-icon" onClick={() => handleDelete(r.id)}>
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -225,29 +239,37 @@ const renderValue = (value, field) => {
     try { return new Date(value).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }); } catch { return value; }
   }
   if (field.field_type === 'currency') return <span style={{ fontFamily: 'monospace' }}>₹{Number(value).toLocaleString()}</span>;
-  if (field.name === 'status' || field.name === 'payment_status' || field.name === 'available') {
+
+  const STATUS_COLORS = {
+    vacant: '#16a34a', occupied: '#dc2626', reserved: '#d97706', under_maintenance: '#6b7280', housekeeping: '#7c3aed',
+    checked_in: '#2563eb', checked_out: '#6b7280', cancelled: '#dc2626', no_show: '#9a3412',
+    paid: '#16a34a', unpaid: '#dc2626', partial: '#d97706', overdue: '#9a3412',
+    available: '#16a34a', unavailable: '#dc2626', seasonal: '#d97706',
+    complete: '#16a34a', pending: '#d97706', in_progress: '#2563eb',
+    converted: '#16a34a', new: '#6b7280', lost: '#dc2626', active: '#6b7280',
+    scheduled: '#2563eb', en_route: '#d97706',
+    room_bill: '#0b1628', food_bill: '#c75b39', transport_bill: '#7c3aed', combined: '#16a34a',
+  };
+
+  if (['status','payment_status','available','bill_type'].includes(field.name)) {
     const opt = field.options?.find(o => o.value === value);
     const label = opt?.label || value;
-    const colorMap = {
-      vacant: '#16a34a', occupied: '#dc2626', reserved: '#d97706', under_maintenance: '#6b7280', housekeeping: '#7c3aed',
-      checked_in: '#2563eb', checked_out: '#6b7280', cancelled: '#dc2626', no_show: '#9a3412',
-      paid: '#16a34a', unpaid: '#dc2626', partial: '#d97706', overdue: '#9a3412',
-      available: '#16a34a', unavailable: '#dc2626', seasonal: '#d97706',
-      complete: '#16a34a', pending: '#d97706', in_progress: '#2563eb',
-      converted: '#16a34a', new: '#6b7280', lost: '#dc2626',
-    };
+    const color = STATUS_COLORS[value] || '#6b7280';
     return (
       <span style={{
-        display: 'inline-block', padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600,
-        background: (colorMap[value] || '#6b7280') + '18',
-        color: colorMap[value] || '#6b7280',
+        display: 'inline-block', padding: '2px 8px', borderRadius: 4,
+        fontSize: 11, fontWeight: 600,
+        background: color + '18', color,
       }}>
         {label}
       </span>
     );
   }
+
   const str = String(value);
-  return <span title={str} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block', maxWidth: 150 }}>{str.length > 30 ? str.substring(0,30)+'…' : str}</span>;
+  return <span title={str} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block', maxWidth: 150 }}>
+    {str.length > 30 ? str.substring(0,30)+'…' : str}
+  </span>;
 };
 
 export default ModulePage;

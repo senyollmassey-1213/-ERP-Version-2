@@ -21,7 +21,7 @@ const WORKFLOW_RULES = {
   ],
   hotel_restaurant: [
     { fromSlug: 'crm',      triggerStatus: 'converted',   toSlug: 'bookings', copyFields: ['guest_name','phone','email','nationality','id_type','id_number','_allocated_room','_allocated_room_type','_allocated_rate'] },
-    { fromSlug: 'bookings', triggerStatus: 'checked_out', toSlug: 'billing',  copyFields: ['guest_name','phone','room_number','room_type','check_in_date','check_out_date','total_nights','room_amount','booking_source'] },
+    { fromSlug: 'bookings', triggerStatus: 'checked_out', toSlug: 'billing',  copyFields: ['guest_name','phone','room_number','room_type','check_in_date','check_out_date','total_nights','room_amount','rate_per_night','num_guests','booking_source'] },
     { fromSlug: 'billing',  triggerStatus: 'paid',        toSlug: 'reports',  copyFields: ['guest_name','total','payment_date','bill_type'] },
   ],
 };
@@ -34,6 +34,95 @@ const generateRecordNumber = async (tenantId, moduleSlug) => {
   );
   return `${prefix}-${String(parseInt(r.rows[0].count) + 1).padStart(5, '0')}`;
 };
+
+// ── Update room status by room_number ─────────────────────────────────────────
+async function updateRoomStatus(tenantId, roomNumber, newStatus) {
+  try {
+    const roomModR = await query(`SELECT id FROM modules WHERE slug='rooms'`);
+    if (!roomModR.rows[0]) return;
+    const roomR = await query(
+      `SELECT id, data FROM records WHERE tenant_id=$1 AND module_id=$2 AND data->>'room_number'=$3 AND is_archived=false`,
+      [tenantId, roomModR.rows[0].id, String(roomNumber)]
+    );
+    if (roomR.rows[0]) {
+      const updatedData = { ...roomR.rows[0].data, status: newStatus };
+      await query(
+        `UPDATE records SET status=$1, data=$2::jsonb, updated_at=NOW() WHERE id=$3`,
+        [newStatus, JSON.stringify(updatedData), roomR.rows[0].id]
+      );
+      console.log(`  🛏 Room ${roomNumber} → ${newStatus}`);
+    }
+  } catch (err) {
+    console.error('Room status update error:', err.message);
+  }
+}
+
+// ── Check if room is available ────────────────────────────────────────────────
+async function getRoomStatus(tenantId, roomNumber) {
+  try {
+    const roomModR = await query(`SELECT id FROM modules WHERE slug='rooms'`);
+    if (!roomModR.rows[0]) return null;
+    const roomR = await query(
+      `SELECT status, data FROM records WHERE tenant_id=$1 AND module_id=$2 AND data->>'room_number'=$3 AND is_archived=false`,
+      [tenantId, roomModR.rows[0].id, String(roomNumber)]
+    );
+    if (roomR.rows[0]) return roomR.rows[0].data?.status || roomR.rows[0].status;
+    return null;
+  } catch { return null; }
+}
+
+// ── Auto-create housekeeping task ─────────────────────────────────────────────
+async function createHousekeepingTask(req, booking) {
+  try {
+    const hkModR = await query(
+      `SELECT m.id FROM modules m JOIN tenant_modules tm ON tm.module_id=m.id
+       WHERE m.slug='housekeeping' AND tm.tenant_id=$1 AND tm.is_enabled=true`,
+      [req.tenantId]
+    );
+    if (!hkModR.rows[0]) return;
+
+    // Get default housekeeping staff from tenant settings
+    const tenantR = await query(`SELECT staff_settings, industry_id FROM tenants WHERE id=$1`, [req.tenantId]);
+    const staffSettings = tenantR.rows[0]?.staff_settings || {};
+    const defaultHKStaff = staffSettings.default_housekeeping_user_id || null;
+    const defaultHKName  = staffSettings.default_housekeeping_name || '';
+
+    // Get assigned user name if set
+    let assignedName = defaultHKName;
+    if (defaultHKStaff && !assignedName) {
+      const userR = await query(`SELECT first_name, last_name FROM users WHERE id=$1`, [defaultHKStaff]);
+      if (userR.rows[0]) assignedName = `${userR.rows[0].first_name} ${userR.rows[0].last_name}`;
+    }
+
+    const taskData = {
+      room_number:    booking.data?.room_number || '',
+      task_type:      'daily_cleaning',
+      assigned_to:    assignedName,
+      scheduled_date: new Date().toISOString().split('T')[0],
+      status:         'pending',
+      linked_booking: booking.record_number,
+      notes:          `Auto-created on checkout of ${booking.data?.guest_name || 'guest'}`,
+    };
+
+    const newNumber = await generateRecordNumber(req.tenantId, 'housekeeping');
+    await query(
+      `INSERT INTO records (tenant_id, module_id, industry_id, record_number, title, data, status, assigned_to, created_by, parent_record_id)
+       VALUES ($1,$2,$3,$4,$5,$6,'pending',$7,$8,$9)`,
+      [
+        req.tenantId, hkModR.rows[0].id, booking.industry_id,
+        newNumber,
+        `Cleaning - Room ${booking.data?.room_number || ''}`,
+        JSON.stringify(taskData),
+        defaultHKStaff || null,
+        req.user.id,
+        booking.id,
+      ]
+    );
+    console.log(`  🧹 Housekeeping task created for Room ${booking.data?.room_number}`);
+  } catch (err) {
+    console.error('Housekeeping task creation error:', err.message);
+  }
+}
 
 const listRecords = asyncHandler(async (req, res) => {
   const { moduleSlug } = req.params;
@@ -49,7 +138,7 @@ const listRecords = asyncHandler(async (req, res) => {
   let idx = 3;
 
   if (status) { conditions.push(`(r.status=$${idx} OR r.data->>'status'=$${idx})`); params.push(status); idx++; }
-  if (search)  { conditions.push(`(r.title ILIKE $${idx} OR r.record_number ILIKE $${idx})`); params.push(`%${search}%`); idx++; }
+  if (search)  { conditions.push(`(r.title ILIKE $${idx} OR r.record_number ILIKE $${idx} OR r.data->>'guest_name' ILIKE $${idx} OR r.data->>'room_number' ILIKE $${idx})`); params.push(`%${search}%`); idx++; }
 
   const where = conditions.join(' AND ');
   const countR = await query(`SELECT COUNT(*) FROM records r WHERE ${where}`, params);
@@ -91,6 +180,17 @@ const createRecord = asyncHandler(async (req, res) => {
   );
   if (!modR.rows[0]) return res.status(404).json({ success: false, message: 'Module not found or disabled' });
 
+  // ── Hotel: block double booking ───────────────────────────────────────────
+  if (moduleSlug === 'bookings' && data.room_number) {
+    const roomStatus = await getRoomStatus(req.tenantId, data.room_number);
+    if (roomStatus === 'occupied' || roomStatus === 'reserved') {
+      return res.status(409).json({
+        success: false,
+        message: `Room ${data.room_number} is already ${roomStatus}. Please select a different room.`
+      });
+    }
+  }
+
   const tenantR = await query(`SELECT industry_id FROM tenants WHERE id=$1`, [req.tenantId]);
   const industryId = tenantR.rows[0].industry_id;
   const recordNumber = await generateRecordNumber(req.tenantId, moduleSlug);
@@ -101,6 +201,11 @@ const createRecord = asyncHandler(async (req, res) => {
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
     [req.tenantId, modR.rows[0].id, industryId, recordNumber, title, JSON.stringify(data), resolvedStatus, assignedTo || null, req.user.id]
   );
+
+  // Mark room as reserved when booking is created
+  if (moduleSlug === 'bookings' && data.room_number) {
+    await updateRoomStatus(req.tenantId, data.room_number, 'reserved');
+  }
 
   await query(
     `INSERT INTO audit_logs (tenant_id, user_id, action, entity_type, entity_id, new_data) VALUES ($1,$2,'created','record',$3,$4)`,
@@ -117,8 +222,35 @@ const updateRecord = asyncHandler(async (req, res) => {
   if (!oldR.rows[0]) return res.status(404).json({ success: false, message: 'Record not found' });
   const old = oldR.rows[0];
 
-  // data.status always takes priority — it's what the user set in the form dropdown
+  // data.status always takes priority
   const resolvedStatus = (data && data.status) ? data.status : (status || old.status);
+
+  // ── Hotel: block CRM from converting twice ────────────────────────────────
+  const fromModR = await query(`SELECT slug FROM modules WHERE id=$1`, [old.module_id]);
+  const fromSlug = fromModR.rows[0]?.slug;
+  if (fromSlug === 'crm' && resolvedStatus === 'converted' && old.status === 'converted') {
+    return res.status(409).json({
+      success: false,
+      message: 'This lead has already been converted. A booking already exists for this guest.'
+    });
+  }
+
+  // ── Hotel: block double booking on room change ────────────────────────────
+  if (fromSlug === 'bookings' && data?.room_number && data.room_number !== old.data?.room_number) {
+    const roomStatus = await getRoomStatus(req.tenantId, data.room_number);
+    if (roomStatus === 'occupied' || roomStatus === 'reserved') {
+      return res.status(409).json({
+        success: false,
+        message: `Room ${data.room_number} is already ${roomStatus}. Please select a different room.`
+      });
+    }
+    // Free old room if room number is being changed
+    if (old.data?.room_number) {
+      await updateRoomStatus(req.tenantId, old.data.room_number, 'vacant');
+    }
+    // Reserve new room
+    await updateRoomStatus(req.tenantId, data.room_number, 'reserved');
+  }
 
   const r = await query(
     `UPDATE records SET
@@ -141,31 +273,17 @@ const updateRecord = asyncHandler(async (req, res) => {
 });
 
 const deleteRecord = asyncHandler(async (req, res) => {
+  // If deleting a booking, free the room
+  const recR = await query(
+    `SELECT r.*, m.slug FROM records r JOIN modules m ON m.id=r.module_id WHERE r.id=$1 AND r.tenant_id=$2`,
+    [req.params.id, req.tenantId]
+  );
+  if (recR.rows[0]?.slug === 'bookings' && recR.rows[0]?.data?.room_number) {
+    await updateRoomStatus(req.tenantId, recR.rows[0].data.room_number, 'vacant');
+  }
   await query(`UPDATE records SET is_archived=true, updated_at=NOW() WHERE id=$1 AND tenant_id=$2`, [req.params.id, req.tenantId]);
   sendSuccess(res, {}, 'Record deleted');
 });
-
-// ── Update room status helper ─────────────────────────────────────────────────
-async function updateRoomStatus(tenantId, roomNumber, newStatus) {
-  try {
-    const roomModR = await query(`SELECT id FROM modules WHERE slug='rooms'`);
-    if (!roomModR.rows[0]) return;
-    const roomR = await query(
-      `SELECT id, data FROM records WHERE tenant_id=$1 AND module_id=$2 AND data->>'room_number'=$3 AND is_archived=false`,
-      [tenantId, roomModR.rows[0].id, String(roomNumber)]
-    );
-    if (roomR.rows[0]) {
-      const updatedData = { ...roomR.rows[0].data, status: newStatus };
-      await query(
-        `UPDATE records SET status=$1, data=$2::jsonb, updated_at=NOW() WHERE id=$3`,
-        [newStatus, JSON.stringify(updatedData), roomR.rows[0].id]
-      );
-      console.log(`  🛏 Room ${roomNumber} → ${newStatus}`);
-    }
-  } catch (err) {
-    console.error('Room status update error:', err.message);
-  }
-}
 
 // ── WORKFLOW ENGINE ────────────────────────────────────────────────────────────
 async function triggerWorkflow(req, record, oldStatus, newStatus) {
@@ -181,11 +299,19 @@ async function triggerWorkflow(req, record, oldStatus, newStatus) {
     if (!fromModR.rows[0]) return;
     const fromSlug = fromModR.rows[0].slug;
 
-    // Hotel room status automation
+    // ── Hotel room status automation ──────────────────────────────────────
     if (industrySlug === 'hotel_restaurant' && fromSlug === 'bookings') {
-      if (newStatus === 'checked_in'  && record.data?.room_number) await updateRoomStatus(req.tenantId, record.data.room_number, 'occupied');
-      if (newStatus === 'checked_out' && record.data?.room_number) await updateRoomStatus(req.tenantId, record.data.room_number, 'vacant');
-      if (newStatus === 'cancelled'   && record.data?.room_number) await updateRoomStatus(req.tenantId, record.data.room_number, 'vacant');
+      const roomNum = record.data?.room_number;
+      if (roomNum) {
+        if (newStatus === 'checked_in')  await updateRoomStatus(req.tenantId, roomNum, 'occupied');
+        if (newStatus === 'checked_out') await updateRoomStatus(req.tenantId, roomNum, 'vacant');
+        if (newStatus === 'cancelled')   await updateRoomStatus(req.tenantId, roomNum, 'vacant');
+        if (newStatus === 'no_show')     await updateRoomStatus(req.tenantId, roomNum, 'vacant');
+      }
+      // Auto-create housekeeping on checkout
+      if (newStatus === 'checked_out') {
+        await createHousekeepingTask(req, record);
+      }
     }
 
     const rules = WORKFLOW_RULES[industrySlug] || [];
@@ -207,14 +333,40 @@ async function triggerWorkflow(req, record, oldStatus, newStatus) {
     copiedData['_linked_from'] = record.record_number;
     copiedData['_linked_record_id'] = record.id;
 
+    // For hotel: pre-fill room from CRM allocation into booking
     if (rule.toSlug === 'bookings' && record.data['_allocated_room']) {
       copiedData['room_number']    = record.data['_allocated_room'];
       copiedData['room_type']      = record.data['_allocated_room_type'];
       copiedData['rate_per_night'] = record.data['_allocated_rate'];
+      // Mark room as reserved immediately when booking is auto-created
+      await updateRoomStatus(req.tenantId, record.data['_allocated_room'], 'reserved');
+    }
+
+    // For billing auto-created from checkout — set bill_type and invoice number
+    if (rule.toSlug === 'billing') {
+      copiedData['bill_type'] = 'room_bill';
+      // Generate sequential invoice number
+      const tenantInfoR = await query(`SELECT invoice_prefix FROM tenants WHERE id=$1`, [req.tenantId]);
+      const prefix = tenantInfoR.rows[0]?.invoice_prefix || 'INV';
+      const countR = await query(
+        `SELECT COUNT(*) FROM records r JOIN modules m ON m.id=r.module_id WHERE r.tenant_id=$1 AND m.slug='billing'`,
+        [req.tenantId]
+      );
+      const count = parseInt(countR.rows[0].count) + 1;
+      copiedData['invoice_number'] = `${prefix}-${String(count).padStart(5, '0')}`;
     }
 
     const newNumber = await generateRecordNumber(req.tenantId, rule.toSlug);
-    const newTitle = `From ${record.record_number}${record.title ? ' — ' + record.title : ''}`;
+
+    // Use guest name as title for billing, guest+room for bookings
+    let newTitle;
+    if (rule.toSlug === 'billing') {
+      newTitle = `${copiedData.guest_name || 'Bill'} - Room Bill`;
+    } else if (rule.toSlug === 'bookings') {
+      newTitle = copiedData.guest_name || `From ${record.record_number}`;
+    } else {
+      newTitle = `From ${record.record_number}${record.title ? ' — ' + record.title : ''}`;
+    }
 
     const newRecR = await query(
       `INSERT INTO records (tenant_id, module_id, industry_id, record_number, title, data, status, created_by, parent_record_id, source_module_id)

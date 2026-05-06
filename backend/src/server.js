@@ -47,6 +47,7 @@ const runTenantInfoMigrations = async () => {
     await pool.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS phone VARCHAR(30)`);
     await pool.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS website VARCHAR(255)`);
     await pool.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS invoice_prefix VARCHAR(20) DEFAULT 'INV'`);
+    await pool.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS staff_settings JSONB DEFAULT '{}'`);
     console.log('✅ Tenant info columns ready');
   } catch (err) {
     console.error('❌ Tenant info migration error:', err.message);
