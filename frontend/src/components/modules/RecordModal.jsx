@@ -85,7 +85,7 @@ const RecordModal = ({ moduleSlug, titleHeads, record, onClose, onSave }) => {
           if (booking) {
             update('guest_name', booking.data?.guest_name || '');
             if (!data.bill_type || data.bill_type === 'room_bill') {
-              update('amount', booking.data?.room_amount || '');
+              update('amount', booking.data?.room_amount || booking.data?.rate_per_night || '');
             }
           }
         }
@@ -107,7 +107,13 @@ const RecordModal = ({ moduleSlug, titleHeads, record, onClose, onSave }) => {
       return `${prefix}-${String(count).padStart(5, '0')}`;
     } catch { return `INV-00001`; }
   };
-
+  useEffect(() => {
+    if (moduleSlug === 'bookings') {
+      const rate = parseFloat(data.rate_per_night) || 0;
+      const nights = parseFloat(data.total_nights) || 0;
+      if (rate > 0 && nights > 0) update('room_amount', (rate * nights).toFixed(2));
+    }
+  }, [data.rate_per_night, data.total_nights, moduleSlug]);
   useEffect(() => {
     if (moduleSlug === 'billing' && !isEdit && !data.invoice_number && hotelInfo) {
       generateInvoiceNumber().then(num => update('invoice_number', num));
@@ -287,8 +293,15 @@ ${d.remarks?`<p style="margin-top:16px;font-size:12px;color:#718096">Note: ${d.r
                   <BedDouble size={14} />
                   Room {data._allocated_room} ({data._allocated_room_type}) allocated
                 </div>
-              )}
-
+              )} 
+              <div className="form-group">
+                <label className="form-label">
+                  {moduleSlug === 'rooms' ? 'Room Name' : 'Title'}
+                </label>
+                <input className="form-input" value={title} onChange={e => setTitle(e.target.value)}
+                  placeholder={moduleSlug === 'rooms' ? 'e.g. Sea View, Pool View...' : 'Optional'} />
+              </div>
+              
               {statusField && (
                 <div className="form-group">
                   <label className="form-label">
@@ -493,7 +506,7 @@ const FieldInput = ({ field, value, onChange, moduleSlug }) => {
   const isWide = ['textarea'].includes(field.field_type) ||
     ['description','material','remarks','notes','requests','amenities','address'].some(k => field.name.includes(k));
 
-  const isAutoFilled = (moduleSlug === 'bookings' && ['room_type','rate_per_night'].includes(field.name)) ||
+  const isAutoFilled = (moduleSlug === 'bookings' && ['room_type','rate_per_night','room_amount'].includes(field.name)) ||
                        (moduleSlug === 'billing'   && ['guest_name','invoice_number','total'].includes(field.name));
 
   const el = (() => {

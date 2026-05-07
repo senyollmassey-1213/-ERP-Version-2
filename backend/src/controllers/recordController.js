@@ -304,15 +304,21 @@ async function triggerWorkflow(req, record, oldStatus, newStatus) {
       const roomNum = record.data?.room_number;
       if (roomNum) {
         if (newStatus === 'checked_in')  await updateRoomStatus(req.tenantId, roomNum, 'occupied');
-        if (newStatus === 'checked_out') await updateRoomStatus(req.tenantId, roomNum, 'vacant');
+        if (newStatus === 'checked_out') await updateRoomStatus(req.tenantId, roomNum, 'housekeeping');
         if (newStatus === 'cancelled')   await updateRoomStatus(req.tenantId, roomNum, 'vacant');
         if (newStatus === 'no_show')     await updateRoomStatus(req.tenantId, roomNum, 'vacant');
       }
       // Auto-create housekeeping on checkout
-      if (newStatus === 'checked_out') {
-        await createHousekeepingTask(req, record);
-      }
+    if (newStatus === 'checked_out') {
+      await createHousekeepingTask(req, record);
     }
+  }
+
+  // When housekeeping task complete → mark room vacant
+  if (industrySlug === 'hotel_restaurant' && fromSlug === 'housekeeping' && newStatus === 'complete') {
+    const roomNum = record.data?.room_number;
+    if (roomNum) await updateRoomStatus(req.tenantId, roomNum, 'vacant');
+  }
 
     const rules = WORKFLOW_RULES[industrySlug] || [];
     const rule = rules.find(r => r.fromSlug === fromSlug && r.triggerStatus === newStatus);
