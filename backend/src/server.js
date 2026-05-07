@@ -48,6 +48,7 @@ const runTenantInfoMigrations = async () => {
     await pool.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS website VARCHAR(255)`);
     await pool.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS invoice_prefix VARCHAR(20) DEFAULT 'INV'`);
     await pool.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS staff_settings JSONB DEFAULT '{}'`);
+    await pool.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS gst_rates JSONB DEFAULT '{"stay":12,"food":5,"transport":5}'`);
     console.log('✅ Tenant info columns ready');
   } catch (err) {
     console.error('❌ Tenant info migration error:', err.message);

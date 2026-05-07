@@ -1,17 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { Plus, Search, Trash2, Edit, GitBranch } from 'lucide-react';
-import { moduleAPI, recordAPI } from 'services/api';
+import { Plus, Search, Trash2, Edit, GitBranch, UtensilsCrossed, List } from 'lucide-react';
+import { moduleAPI, recordAPI, tenantAPI } from 'services/api';
 import { useAuth } from 'context/AuthContext';
 import toast from 'react-hot-toast';
 import RecordModal from 'components/modules/RecordModal';
 import QRButton from 'components/qr/QRButton';
 
-// Primary display field per module — shown instead of Title
 const MODULE_PRIMARY_FIELD = {
   crm:          'guest_name',
   bookings:     'guest_name',
-  rooms:        null, // use title (Sea View etc.)
+  rooms:        null,
   billing:      'guest_name',
   housekeeping: 'room_number',
   transport:    'guest_name',
@@ -19,7 +18,6 @@ const MODULE_PRIMARY_FIELD = {
   inventory:    'item_name',
 };
 
-// Columns to show per module
 const MODULE_COLUMNS = {
   bookings:     ['room_number', 'check_in_date', 'check_out_date', 'status'],
   rooms:        ['room_number', 'room_type', 'floor', 'capacity', 'status'],
@@ -27,7 +25,7 @@ const MODULE_COLUMNS = {
   crm:          ['phone', 'email', 'status'],
   housekeeping: ['task_type', 'assigned_to', 'scheduled_date', 'status'],
   transport:    ['transport_type', 'pickup_datetime', 'status'],
-  menu:         ['category', 'price', 'available'],
+  menu:         ['category', 'price', 'is_veg', 'available'],
   inventory:    ['category', 'quantity', 'unit'],
 };
 
@@ -38,22 +36,284 @@ const ModulePage = () => {
   const location = useLocation();
   const queryStatus = new URLSearchParams(location.search).get('status') || '';
 
+  // Menu module gets special two-tab treatment
+  if (moduleSlug === 'menu') {
+    return <MenuModulePage />;
+  }
+
+  return <StandardModulePage moduleSlug={moduleSlug} user={user} queryStatus={queryStatus} />;
+};
+
+// ── Menu Module — Two Tab View ────────────────────────────────────────────────
+const MenuModulePage = () => {
+  const { user } = useAuth();
+  const [activeTab, setActiveTab] = useState('items');
   const [titleHeads, setTitleHeads] = useState([]);
+
+  useEffect(() => {
+    moduleAPI.titleHeads('menu').then(res => { if (res.success) setTitleHeads(res.data); }).catch(() => {});
+  }, []);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h2 style={{ fontSize: 20 }}>Menu</h2>
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display: 'flex', gap: 4, background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', padding: 4, width: 'fit-content' }}>
+        <button className={`btn btn-sm ${activeTab === 'items' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setActiveTab('items')}>
+          <List size={13} /> Menu Items
+        </button>
+        <button className={`btn btn-sm ${activeTab === 'orders' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setActiveTab('orders')}>
+          <UtensilsCrossed size={13} /> Place Order
+        </button>
+      </div>
+
+      {activeTab === 'items' && (
+        <StandardModulePage moduleSlug="menu" user={user} queryStatus="" titleHeadsOverride={titleHeads} />
+      )}
+      {activeTab === 'orders' && (
+        <MenuOrderPage titleHeads={titleHeads} />
+      )}
+    </div>
+  );
+};
+
+// ── Menu Order Page ───────────────────────────────────────────────────────────
+const MenuOrderPage = ({ titleHeads }) => {
+  const [menuItems, setMenuItems]   = useState([]);
+  const [loading, setLoading]       = useState(true);
+  const [order, setOrder]           = useState({});
+  const [activeCategory, setActiveCategory] = useState('all');
+  const [guestName, setGuestName]   = useState('');
+  const [tableNo, setTableNo]       = useState('');
+  const [linkedBooking, setLinkedBooking] = useState('');
+  const [bookings, setBookings]     = useState([]);
+  const [hotelInfo, setHotelInfo]   = useState(null);
+  const [placing, setPlacing]       = useState(false);
+
+  useEffect(() => {
+    Promise.all([
+      recordAPI.list('menu', { limit: 200 }),
+      recordAPI.list('bookings', { limit: 100 }),
+      tenantAPI.getMyInfo(),
+    ]).then(([menuRes, bookRes, hotelRes]) => {
+      if (menuRes.success) setMenuItems(menuRes.data.filter(r => r.data?.available !== 'unavailable'));
+      if (bookRes.success) setBookings(bookRes.data.filter(b => b.status === 'checked_in' || b.data?.status === 'checked_in'));
+      if (hotelRes.success) setHotelInfo(hotelRes.data);
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  const categories = ['all', ...new Set(menuItems.map(m => m.data?.category).filter(Boolean))];
+  const filtered = activeCategory === 'all' ? menuItems : menuItems.filter(m => m.data?.category === activeCategory);
+
+  const setQty = (id, qty) => setOrder(prev => ({ ...prev, [id]: Math.max(0, qty) }));
+
+  const orderedItems = menuItems.filter(m => (order[m.id] || 0) > 0).map(m => ({
+    id: m.id, name: m.data?.item_name || m.title,
+    price: parseFloat(m.data?.price) || 0, qty: order[m.id],
+  }));
+  const subtotal = orderedItems.reduce((s, i) => s + (i.price * i.qty), 0);
+  const gstRate  = hotelInfo?.gst_rates?.food || 0;
+  const gstAmt   = subtotal * gstRate / 100;
+  const total    = subtotal + gstAmt;
+
+  const handlePlaceOrder = async () => {
+    if (!orderedItems.length) { toast.error('Add at least one item'); return; }
+    if (!guestName && !linkedBooking) { toast.error('Enter guest name or link a booking'); return; }
+    setPlacing(true);
+    try {
+      const prefix = hotelInfo?.invoice_prefix || 'INV';
+      const countRes = await recordAPI.list('billing', { limit: 1000 });
+      const count = countRes.success ? (countRes.data?.length || 0) + 1 : 1;
+      const invoiceNum = `${prefix}-${String(count).padStart(5, '0')}`;
+
+      // Get guest name from booking if linked
+      let finalGuestName = guestName;
+      if (linkedBooking) {
+        const booking = bookings.find(b => b.record_number === linkedBooking);
+        if (booking) finalGuestName = finalGuestName || booking.data?.guest_name || '';
+      }
+
+      const billData = {
+        invoice_number: invoiceNum,
+        guest_name:     finalGuestName,
+        bill_type:      'food_bill',
+        linked_booking: linkedBooking || '',
+        table_number:   tableNo,
+        amount:         subtotal.toFixed(2),
+        tax:            gstRate,
+        total:          total.toFixed(2),
+        payment_status: 'unpaid',
+        _food_items:    orderedItems,
+        status:         'unpaid',
+      };
+
+      await recordAPI.create('billing', {
+        title: `${finalGuestName} - Food Bill`,
+        data: billData,
+        status: 'unpaid',
+      });
+
+      toast.success('Food order placed and bill created!');
+      setOrder({});
+      setGuestName('');
+      setTableNo('');
+      setLinkedBooking('');
+    } catch (err) {
+      toast.error(err.message);
+    }
+    setPlacing(false);
+  };
+
+  const CATEGORY_LABELS = {
+    breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner',
+    beverages: 'Beverages', snacks: 'Snacks', desserts: 'Desserts', room_service: 'Room Service',
+  };
+
+  if (loading) return <div className="page-loader"><div className="spinner" /></div>;
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 16, alignItems: 'start' }}>
+      {/* Left — Menu */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {/* Category tabs */}
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {categories.map(cat => (
+            <button key={cat} className={`btn btn-sm ${activeCategory === cat ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setActiveCategory(cat)}>
+              {cat === 'all' ? 'All' : (CATEGORY_LABELS[cat] || cat)}
+            </button>
+          ))}
+        </div>
+
+        {filtered.length === 0 ? (
+          <div className="empty-state" style={{ padding: 60 }}>
+            <UtensilsCrossed size={36} />
+            <h3>No menu items</h3>
+            <p>Add items in the Menu Items tab first.</p>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {filtered.map(item => {
+              const qty = order[item.id] || 0;
+              const isVeg = item.data?.is_veg === 'veg' || item.data?.is_veg === 'vegan';
+              return (
+                <div key={item.id} className="card" style={{
+                  padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  border: `1.5px solid ${qty > 0 ? 'var(--color-secondary)' : 'var(--color-border)'}`,
+                  background: qty > 0 ? '#fff7ed' : 'var(--color-surface)',
+                  transition: 'all 0.15s',
+                }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ width: 12, height: 12, borderRadius: 2, border: `2px solid ${isVeg ? '#16a34a' : '#dc2626'}`, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <span style={{ width: 5, height: 5, borderRadius: '50%', background: isVeg ? '#16a34a' : '#dc2626', display: 'block' }} />
+                      </span>
+                      <span style={{ fontWeight: 600, fontSize: 14 }}>{item.data?.item_name || item.title}</span>
+                    </div>
+                    {item.data?.description && <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 3, marginLeft: 18 }}>{item.data.description}</p>}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                    <span style={{ fontWeight: 700, color: 'var(--color-secondary)', minWidth: 70, textAlign: 'right' }}>
+                      ₹{Number(item.data?.price || 0).toLocaleString()}
+                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <button onClick={() => setQty(item.id, qty - 1)}
+                        style={{ width: 28, height: 28, borderRadius: 6, border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', cursor: 'pointer', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
+                      <span style={{ minWidth: 24, textAlign: 'center', fontWeight: 700, fontSize: 14 }}>{qty}</span>
+                      <button onClick={() => setQty(item.id, qty + 1)}
+                        style={{ width: 28, height: 28, borderRadius: 6, border: `1.5px solid var(--color-secondary)`, background: qty > 0 ? 'var(--color-secondary)' : 'var(--color-surface)', color: qty > 0 ? 'white' : 'inherit', cursor: 'pointer', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Right — Order Summary */}
+      <div className="card" style={{ position: 'sticky', top: 16 }}>
+        <h3 style={{ fontSize: 15, marginBottom: 14 }}>Order Summary</h3>
+
+        <div className="form-group" style={{ marginBottom: 10 }}>
+          <label className="form-label">Link to Booking (optional)</label>
+          <select className="form-select" value={linkedBooking} onChange={e => setLinkedBooking(e.target.value)}>
+            <option value="">Walk-in / No booking</option>
+            {bookings.map(b => (
+              <option key={b.id} value={b.record_number}>
+                {b.record_number} — {b.data?.guest_name} (Room {b.data?.room_number})
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="form-group" style={{ marginBottom: 10 }}>
+          <label className="form-label">Guest Name *</label>
+          <input className="form-input" value={guestName} onChange={e => setGuestName(e.target.value)} placeholder="Enter guest name" />
+        </div>
+
+        <div className="form-group" style={{ marginBottom: 14 }}>
+          <label className="form-label">Table No. (optional)</label>
+          <input className="form-input" value={tableNo} onChange={e => setTableNo(e.target.value)} placeholder="e.g. T-05" />
+        </div>
+
+        {/* Items */}
+        {orderedItems.length > 0 ? (
+          <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 12, marginBottom: 12 }}>
+            {orderedItems.map(item => (
+              <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '4px 0' }}>
+                <span>{item.name} × {item.qty}</span>
+                <span style={{ fontFamily: 'monospace' }}>₹{(item.price * item.qty).toLocaleString()}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginBottom: 14, textAlign: 'center' }}>No items added yet</p>
+        )}
+
+        {orderedItems.length > 0 && (
+          <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 10, marginBottom: 14 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--color-text-3)', marginBottom: 4 }}>
+              <span>Subtotal</span><span>₹{subtotal.toLocaleString()}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--color-text-3)', marginBottom: 6 }}>
+              <span>GST ({gstRate}%)</span><span>₹{gstAmt.toFixed(2)}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: 15 }}>
+              <span>Total</span><span style={{ color: 'var(--color-secondary)' }}>₹{total.toFixed(2)}</span>
+            </div>
+          </div>
+        )}
+
+        <button className="btn btn-primary" style={{ width: '100%' }} onClick={handlePlaceOrder} disabled={placing || !orderedItems.length}>
+          {placing ? <><div className="spinner" style={{ width: 14, height: 14, marginRight: 6 }} />Placing...</> : `Place Order · ₹${total.toFixed(2)}`}
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// ── Standard Module Page ──────────────────────────────────────────────────────
+const StandardModulePage = ({ moduleSlug, user, queryStatus, titleHeadsOverride }) => {
+  const [titleHeads, setTitleHeads] = useState(titleHeadsOverride || []);
   const [records, setRecords]       = useState([]);
   const [stats, setStats]           = useState(null);
   const [loading, setLoading]       = useState(true);
   const [search, setSearch]         = useState('');
-  const [filterStatus, setFilterStatus] = useState(queryStatus);
+  const [filterStatus, setFilterStatus] = useState(queryStatus || '');
   const [page, setPage]             = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [showModal, setShowModal]   = useState(false);
   const [editRecord, setEditRecord] = useState(null);
 
   useEffect(() => {
-    moduleAPI.titleHeads(moduleSlug)
-      .then(res => { if (res.success) setTitleHeads(res.data); })
-      .catch(() => {});
-  }, [moduleSlug]);
+    if (!titleHeadsOverride) {
+      moduleAPI.titleHeads(moduleSlug).then(res => { if (res.success) setTitleHeads(res.data); }).catch(() => {});
+    }
+  }, [moduleSlug, titleHeadsOverride]);
 
   const fetchRecords = useCallback(async () => {
     setLoading(true);
@@ -89,29 +349,39 @@ const ModulePage = () => {
   const primaryFieldName = MODULE_PRIMARY_FIELD[moduleSlug];
   const primaryFieldHead = primaryFieldName ? titleHeads.find(t => t.name === primaryFieldName) : null;
   const primaryLabel = primaryFieldHead?.label || (moduleSlug === 'rooms' ? 'Room' : 'Name');
-
   const moduleName = moduleSlug.charAt(0).toUpperCase() + moduleSlug.slice(1);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
-        <div>
-          <h2 style={{ fontSize: 20, marginBottom: 4 }}>{moduleName}</h2>
-          {stats && (
-            <div style={{ display: 'flex', gap: 12, fontSize: 12, color: 'var(--color-text-3)', flexWrap: 'wrap' }}>
-              <span>{stats.summary?.total || 0} total</span>
-              <span>·</span>
-              <span>{stats.summary?.this_month || 0} this month</span>
-              {stats.byStatus?.map(s => (
-                <span key={s.status}>· {s.count} {s.status}</span>
-              ))}
-            </div>
-          )}
+      {moduleSlug !== 'menu' && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
+          <div>
+            <h2 style={{ fontSize: 20, marginBottom: 4 }}>{moduleName}</h2>
+            {stats && (
+              <div style={{ display: 'flex', gap: 12, fontSize: 12, color: 'var(--color-text-3)', flexWrap: 'wrap' }}>
+                <span>{stats.summary?.total || 0} total</span>
+                <span>·</span>
+                <span>{stats.summary?.this_month || 0} this month</span>
+                {stats.byStatus?.map(s => <span key={s.status}>· {s.count} {s.status}</span>)}
+              </div>
+            )}
+          </div>
+          <button className="btn btn-primary" onClick={() => { setEditRecord(null); setShowModal(true); }}>
+            <Plus size={14} /> New Record
+          </button>
         </div>
-        <button className="btn btn-primary" onClick={() => { setEditRecord(null); setShowModal(true); }}>
-          <Plus size={14} /> New Record
-        </button>
-      </div>
+      )}
+
+      {moduleSlug === 'menu' && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          {stats && (
+            <p style={{ fontSize: 12, color: 'var(--color-text-3)' }}>{stats.summary?.total || 0} items</p>
+          )}
+          <button className="btn btn-primary" onClick={() => { setEditRecord(null); setShowModal(true); }}>
+            <Plus size={14} /> Add Item
+          </button>
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 13px', background: 'var(--color-surface)', border: '1.5px solid var(--color-border)', borderRadius: 'var(--radius-md)', flex: 1, maxWidth: 360 }}>
@@ -153,11 +423,9 @@ const ModulePage = () => {
                 </thead>
                 <tbody>
                   {records.map(r => {
-                    // Primary display value
                     const primaryValue = primaryFieldName
                       ? (r.data?.[primaryFieldName] || r.title || '(No name)')
                       : (r.title || '(No title)');
-
                     return (
                       <tr key={r.id}>
                         <td style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--color-text-3)', whiteSpace: 'nowrap' }}>
@@ -229,38 +497,31 @@ const ModulePage = () => {
   );
 };
 
+const STATUS_COLORS = {
+  vacant: '#16a34a', occupied: '#dc2626', reserved: '#d97706', under_maintenance: '#6b7280', housekeeping: '#7c3aed',
+  checked_in: '#2563eb', checked_out: '#6b7280', cancelled: '#dc2626', no_show: '#9a3412',
+  paid: '#16a34a', unpaid: '#dc2626', partial: '#d97706', overdue: '#9a3412',
+  available: '#16a34a', unavailable: '#dc2626', seasonal: '#d97706',
+  complete: '#16a34a', pending: '#d97706', in_progress: '#2563eb',
+  converted: '#16a34a', new: '#6b7280', lost: '#dc2626', active: '#6b7280',
+  scheduled: '#2563eb', en_route: '#d97706',
+  room_bill: '#0b1628', food_bill: '#c75b39', transport_bill: '#7c3aed', combined: '#16a34a',
+  veg: '#16a34a', non_veg: '#dc2626', vegan: '#16a34a', egg: '#d97706',
+};
+
 const renderValue = (value, field) => {
   if (value === undefined || value === null || value === '') return <span style={{ color: 'var(--color-text-muted)' }}>—</span>;
   if (field.field_type === 'boolean') return value ? '✓' : '✗';
-  if (field.field_type === 'date') {
-    try { return new Date(value).toLocaleDateString(); } catch { return value; }
-  }
-  if (field.field_type === 'datetime') {
-    try { return new Date(value).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }); } catch { return value; }
-  }
+  if (field.field_type === 'date') { try { return new Date(value).toLocaleDateString(); } catch { return value; } }
+  if (field.field_type === 'datetime') { try { return new Date(value).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }); } catch { return value; } }
   if (field.field_type === 'currency') return <span style={{ fontFamily: 'monospace' }}>₹{Number(value).toLocaleString()}</span>;
 
-  const STATUS_COLORS = {
-    vacant: '#16a34a', occupied: '#dc2626', reserved: '#d97706', under_maintenance: '#6b7280', housekeeping: '#7c3aed',
-    checked_in: '#2563eb', checked_out: '#6b7280', cancelled: '#dc2626', no_show: '#9a3412',
-    paid: '#16a34a', unpaid: '#dc2626', partial: '#d97706', overdue: '#9a3412',
-    available: '#16a34a', unavailable: '#dc2626', seasonal: '#d97706',
-    complete: '#16a34a', pending: '#d97706', in_progress: '#2563eb',
-    converted: '#16a34a', new: '#6b7280', lost: '#dc2626', active: '#6b7280',
-    scheduled: '#2563eb', en_route: '#d97706',
-    room_bill: '#0b1628', food_bill: '#c75b39', transport_bill: '#7c3aed', combined: '#16a34a',
-  };
-
-  if (['status','payment_status','available','bill_type'].includes(field.name)) {
+  if (['status','payment_status','available','bill_type','is_veg'].includes(field.name)) {
     const opt = field.options?.find(o => o.value === value);
     const label = opt?.label || value;
     const color = STATUS_COLORS[value] || '#6b7280';
     return (
-      <span style={{
-        display: 'inline-block', padding: '2px 8px', borderRadius: 4,
-        fontSize: 11, fontWeight: 600,
-        background: color + '18', color,
-      }}>
+      <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600, background: color + '18', color }}>
         {label}
       </span>
     );

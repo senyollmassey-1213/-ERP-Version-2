@@ -46,25 +46,27 @@ const HotelInfoTab = () => {
     address: '', phone: '', website: '',
     gstNumber: '', invoicePrefix: 'INV', logoUrl: '',
     defaultHousekeepingUserId: '',
+    gstStay: 12, gstFood: 5, gstTransport: 5,
   });
 
   useEffect(() => {
-    Promise.all([
-      tenantAPI.getMyInfo(),
-      userAPI.list({ limit: 100 }),
-    ]).then(([tenantRes, usersRes]) => {
+    Promise.all([tenantAPI.getMyInfo(), userAPI.list({ limit: 100 })]).then(([tenantRes, usersRes]) => {
       if (tenantRes.success && tenantRes.data) {
         const d = tenantRes.data;
         const ss = d.staff_settings || {};
+        const gr = d.gst_rates || {};
         setHotelName(d.name || '');
         setForm({
-          address:                    d.address        || '',
-          phone:                      d.phone          || '',
-          website:                    d.website        || '',
-          gstNumber:                  d.gst_number     || '',
-          invoicePrefix:              d.invoice_prefix || 'INV',
-          logoUrl:                    d.logo_url       || '',
-          defaultHousekeepingUserId:  ss.default_housekeeping_user_id || '',
+          address:                   d.address        || '',
+          phone:                     d.phone          || '',
+          website:                   d.website        || '',
+          gstNumber:                 d.gst_number     || '',
+          invoicePrefix:             d.invoice_prefix || 'INV',
+          logoUrl:                   d.logo_url       || '',
+          defaultHousekeepingUserId: ss.default_housekeeping_user_id || '',
+          gstStay:      gr.stay      ?? 12,
+          gstFood:      gr.food      ?? 5,
+          gstTransport: gr.transport ?? 5,
         });
       }
       if (usersRes.success) setUsers(usersRes.data);
@@ -75,17 +77,17 @@ const HotelInfoTab = () => {
     e.preventDefault();
     setSaving(true);
     try {
-      const staffSettings = {
-        default_housekeeping_user_id: form.defaultHousekeepingUserId || null,
+      const staffSettings = { default_housekeeping_user_id: form.defaultHousekeepingUserId || null };
+      const gstRates = {
+        stay:      parseFloat(form.gstStay)      || 0,
+        food:      parseFloat(form.gstFood)      || 0,
+        transport: parseFloat(form.gstTransport) || 0,
       };
       const res = await tenantAPI.updateMyInfo({
-        address:       form.address,
-        gstNumber:     form.gstNumber,
-        phone:         form.phone,
-        website:       form.website,
-        invoicePrefix: form.invoicePrefix,
-        logoUrl:       form.logoUrl,
-        staffSettings,
+        address: form.address, gstNumber: form.gstNumber,
+        phone: form.phone, website: form.website,
+        invoicePrefix: form.invoicePrefix, logoUrl: form.logoUrl,
+        staffSettings, gstRates,
       });
       if (res.success) toast.success('Hotel info saved');
     } catch (err) { toast.error(err.message); }
@@ -101,7 +103,7 @@ const HotelInfoTab = () => {
         <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 2 }}>Appears on invoices and used for auto-assignments.</p>
       </div>
 
-      <div className="card" style={{ maxWidth: 560 }}>
+      <div className="card" style={{ maxWidth: 580 }}>
         <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
           <div className="form-group">
@@ -156,21 +158,42 @@ const HotelInfoTab = () => {
             )}
           </div>
 
-          {/* Housekeeping Staff Assignment */}
+          {/* GST Rates */}
           <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 16 }}>
-            <h4 style={{ fontSize: 13, marginBottom: 12, color: 'var(--color-text-2)' }}>🧹 Housekeeping Assignment</h4>
+            <h4 style={{ fontSize: 13, marginBottom: 4, color: 'var(--color-text-2)' }}>🧾 GST Rates</h4>
+            <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 12 }}>Auto-fills on billing when bill type is selected.</p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+              <div className="form-group">
+                <label className="form-label">Stay / Room GST %</label>
+                <input type="number" className="form-input" value={form.gstStay}
+                  onChange={e => setForm({ ...form, gstStay: e.target.value })} placeholder="12" min={0} max={100} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Food & Beverage GST %</label>
+                <input type="number" className="form-input" value={form.gstFood}
+                  onChange={e => setForm({ ...form, gstFood: e.target.value })} placeholder="5" min={0} max={100} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Transport GST %</label>
+                <input type="number" className="form-input" value={form.gstTransport}
+                  onChange={e => setForm({ ...form, gstTransport: e.target.value })} placeholder="5" min={0} max={100} />
+              </div>
+            </div>
+          </div>
+
+          {/* Housekeeping Staff */}
+          <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 16 }}>
+            <h4 style={{ fontSize: 13, marginBottom: 4, color: 'var(--color-text-2)' }}>🧹 Housekeeping Assignment</h4>
+            <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 12 }}>Auto-assigned when guest checks out.</p>
             <div className="form-group">
               <label className="form-label">Default Housekeeping Staff</label>
               <select className="form-select" value={form.defaultHousekeepingUserId}
                 onChange={e => setForm({ ...form, defaultHousekeepingUserId: e.target.value })}>
                 <option value="">None (assign manually)</option>
                 {users.map(u => (
-                  <option key={u.id} value={u.id}>
-                    {u.first_name} {u.last_name} ({u.role.replace('_',' ')})
-                  </option>
+                  <option key={u.id} value={u.id}>{u.first_name} {u.last_name} ({u.role.replace('_',' ')})</option>
                 ))}
               </select>
-              <span className="form-hint">This person gets auto-assigned when a guest checks out and a cleaning task is created.</span>
             </div>
           </div>
 
@@ -283,7 +306,7 @@ const UsersTab = ({ currentUser }) => {
 
 // ── Create User Modal ─────────────────────────────────────────────────────────
 const CreateUserModal = ({ onClose, onSave }) => {
-  const [saving, setSaving]   = useState(false);
+  const [saving, setSaving] = useState(false);
   const [showPass, setShowPass] = useState(false);
   const [form, setForm] = useState({ firstName: '', lastName: '', email: '', password: '', role: 'user' });
 
@@ -332,8 +355,7 @@ const CreateUserModal = ({ onClose, onSave }) => {
           <div className="modal-footer">
             <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
             <button type="submit" className="btn btn-primary" disabled={saving}>
-              {saving ? <Loader size={14} className="animate-spin" /> : <Save size={14} />}
-              {saving ? 'Creating...' : 'Create User'}
+              {saving ? <Loader size={14} className="animate-spin" /> : <Save size={14} />} {saving ? 'Creating...' : 'Create User'}
             </button>
           </div>
         </form>
@@ -403,8 +425,7 @@ const ModuleAccessModal = ({ user, allModules, onClose, onSave }) => {
         <div className="modal-footer">
           <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
           <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-            {saving ? <Loader size={14} className="animate-spin" /> : <Save size={14} />}
-            {saving ? 'Saving...' : 'Save Access'}
+            {saving ? <Loader size={14} className="animate-spin" /> : <Save size={14} />} {saving ? 'Saving...' : 'Save Access'}
           </button>
         </div>
       </div>

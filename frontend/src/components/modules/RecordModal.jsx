@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { X, Save, Loader, GitBranch, BedDouble, CheckCircle, AlertCircle, Printer, MessageCircle } from 'lucide-react';
-import { recordAPI, tenantAPI, userAPI } from 'services/api';
+import { X, Save, Loader, GitBranch, BedDouble, CheckCircle, AlertCircle, Printer, MessageCircle, ShoppingCart } from 'lucide-react';
+import { recordAPI, tenantAPI } from 'services/api';
 import { useAuth } from 'context/AuthContext';
 import toast from 'react-hot-toast';
 
@@ -13,9 +13,10 @@ const RecordModal = ({ moduleSlug, titleHeads, record, onClose, onSave }) => {
   const [data, setData]     = useState({});
   const [status, setStatus] = useState('active');
   const [saving, setSaving] = useState(false);
-  const [showRoomPicker, setShowRoomPicker] = useState(false);
-  const [pendingStatus, setPendingStatus]   = useState(null);
-  const [hotelInfo, setHotelInfo] = useState(null);
+  const [showRoomPicker, setShowRoomPicker]   = useState(false);
+  const [showFoodOrder, setShowFoodOrder]     = useState(false);
+  const [pendingStatus, setPendingStatus]     = useState(null);
+  const [hotelInfo, setHotelInfo]             = useState(null);
 
   useEffect(() => {
     if (record) {
@@ -97,6 +98,15 @@ const RecordModal = ({ moduleSlug, titleHeads, record, onClose, onSave }) => {
     update('bill_type', billType);
     update('amount', '');
     update('total', '');
+    // Auto-fill GST from hotel settings
+    if (hotelInfo?.gst_rates) {
+      const gstMap = {
+        room_bill:      hotelInfo.gst_rates.stay,
+        food_bill:      hotelInfo.gst_rates.food,
+        transport_bill: hotelInfo.gst_rates.transport,
+      };
+      if (gstMap[billType] !== undefined) update('tax', gstMap[billType]);
+    }
   };
 
   const generateInvoiceNumber = async () => {
@@ -107,19 +117,14 @@ const RecordModal = ({ moduleSlug, titleHeads, record, onClose, onSave }) => {
       return `${prefix}-${String(count).padStart(5, '0')}`;
     } catch { return `INV-00001`; }
   };
-  useEffect(() => {
-    if (moduleSlug === 'bookings') {
-      const rate = parseFloat(data.rate_per_night) || 0;
-      const nights = parseFloat(data.total_nights) || 0;
-      if (rate > 0 && nights > 0) update('room_amount', (rate * nights).toFixed(2));
-    }
-  }, [data.rate_per_night, data.total_nights, moduleSlug]);
+
   useEffect(() => {
     if (moduleSlug === 'billing' && !isEdit && !data.invoice_number && hotelInfo) {
       generateInvoiceNumber().then(num => update('invoice_number', num));
     }
   }, [moduleSlug, isEdit, hotelInfo]);
 
+  // Auto-calculate total from amount + tax
   useEffect(() => {
     if (moduleSlug === 'billing') {
       const amount = parseFloat(data.amount) || 0;
@@ -128,10 +133,17 @@ const RecordModal = ({ moduleSlug, titleHeads, record, onClose, onSave }) => {
     }
   }, [data.amount, data.tax, moduleSlug]);
 
+  // Auto-calculate room_amount from rate × nights in bookings
+  useEffect(() => {
+    if (moduleSlug === 'bookings') {
+      const rate = parseFloat(data.rate_per_night) || 0;
+      const nights = parseFloat(data.total_nights) || 0;
+      if (rate > 0 && nights > 0) update('room_amount', (rate * nights).toFixed(2));
+    }
+  }, [data.rate_per_night, data.total_nights, moduleSlug]);
+
   // WhatsApp for housekeeping staff
   const handleHousekeepingWhatsApp = () => {
-    const staffSettings = hotelInfo?.staff_settings || {};
-    const staffPhone = data.assigned_to_phone || '';
     const msg = encodeURIComponent(
       `🧹 *Housekeeping Task*\n\n` +
       `Room: *${data.room_number || '—'}*\n` +
@@ -141,13 +153,17 @@ const RecordModal = ({ moduleSlug, titleHeads, record, onClose, onSave }) => {
       `${data.notes ? 'Note: ' + data.notes : ''}\n\n` +
       `Please confirm once done. — ${hotelInfo?.name || 'Hotel'}`
     );
-    const phone = staffPhone.replace(/[^0-9]/g, '');
-    window.open(`https://wa.me/${phone ? '91' + phone.slice(-10) : ''}?text=${msg}`, '_blank');
+    window.open(`https://wa.me/?text=${msg}`, '_blank');
   };
 
   const handlePrint = () => {
     const hotel = hotelInfo || {};
     const d = data;
+    const foodItems = d._food_items || [];
+    const foodRows = foodItems.map(item =>
+      `<tr><td>${item.name}</td><td style="text-align:center">${item.qty}</td><td style="text-align:right;font-family:monospace">₹${Number(item.price).toLocaleString('en-IN')}</td><td style="text-align:right;font-family:monospace">₹${Number(item.qty * item.price).toLocaleString('en-IN')}</td></tr>`
+    ).join('');
+
     const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>Invoice ${d.invoice_number||''}</title>
 <style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;font-size:13px;color:#1a202c;padding:32px}
 .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;border-bottom:2px solid #0b1628;padding-bottom:16px}
@@ -183,13 +199,13 @@ td{padding:10px 12px;border-bottom:1px solid #e2e8f0;font-size:12px}tr:nth-child
   <div class="guest-meta">${d.room_number?'Room: '+d.room_number:''}${d.check_in_date?' · Check-in: '+d.check_in_date:''}${d.check_out_date?' · Check-out: '+d.check_out_date:''}</div>
 </div>
 <table>
-  <thead><tr><th>Description</th><th>Details</th><th style="text-align:right">Amount</th></tr></thead>
+  <thead><tr><th>Description</th>${foodItems.length ? '<th style="text-align:center">Qty</th><th style="text-align:right">Rate</th>' : '<th>Details</th>'}<th style="text-align:right">Amount</th></tr></thead>
   <tbody>
-    <tr>
+    ${foodItems.length ? foodRows : `<tr>
       <td>${d.bill_type==='room_bill'?'Room Charges':d.bill_type==='food_bill'?'Food & Beverage':d.bill_type==='transport_bill'?'Transport Charges':'Charges'}</td>
       <td style="color:#718096;font-size:11px">${d.room_number?'Room '+d.room_number:''}${d.total_nights?' · '+d.total_nights+' night(s)':''}</td>
       <td style="text-align:right;font-family:monospace">₹${Number(d.amount||0).toLocaleString('en-IN')}</td>
-    </tr>
+    </tr>`}
   </tbody>
 </table>
 <div class="totals">
@@ -199,7 +215,7 @@ td{padding:10px 12px;border-bottom:1px solid #e2e8f0;font-size:12px}tr:nth-child
 </div>
 ${d.payment_status==='paid'?`<div class="paid-stamp">✓ <strong>PAID</strong> via ${d.payment_method||'—'} on ${d.payment_date||'—'}${d.utr_number?' · Ref: '+d.utr_number:''}</div>`:''}
 ${d.remarks?`<p style="margin-top:16px;font-size:12px;color:#718096">Note: ${d.remarks}</p>`:''}
-<div class="footer">Thank you for staying with us!${hotel.website?' · '+hotel.website:''}${hotel.phone?' · '+hotel.phone:''}</div>
+<div class="footer">Thank you!${hotel.website?' · '+hotel.website:''}${hotel.phone?' · '+hotel.phone:''}</div>
 <script>window.onload=()=>setTimeout(()=>window.print(),400);</script>
 </body></html>`;
     const win = window.open('', '_blank');
@@ -219,6 +235,14 @@ ${d.remarks?`<p style="margin-top:16px;font-size:12px;color:#718096">Note: ${d.r
       `Thank you for your stay!`
     );
     window.open(`https://wa.me/${phone ? '91' + phone.slice(-10) : ''}?text=${msg}`, '_blank');
+  };
+
+  // Food order confirmed — update amount from items
+  const handleFoodOrderConfirm = (items) => {
+    const subtotal = items.reduce((s, i) => s + (i.price * i.qty), 0);
+    update('_food_items', items);
+    update('amount', subtotal.toFixed(2));
+    setShowFoodOrder(false);
   };
 
   const handleSubmit = async (e) => {
@@ -248,10 +272,11 @@ ${d.remarks?`<p style="margin-top:16px;font-size:12px;color:#718096">Note: ${d.r
   };
 
   const modName = moduleSlug.charAt(0).toUpperCase() + moduleSlug.slice(1);
-  const isBookingsModule    = moduleSlug === 'bookings';
-  const isBillingModule     = moduleSlug === 'billing';
+  const isBookingsModule     = moduleSlug === 'bookings';
+  const isBillingModule      = moduleSlug === 'billing';
   const isHousekeepingModule = moduleSlug === 'housekeeping';
-  const showUTR = isBillingModule && UTR_METHODS.includes(data.payment_method);
+  const isFoodBill           = isBillingModule && data.bill_type === 'food_bill';
+  const showUTR              = isBillingModule && UTR_METHODS.includes(data.payment_method);
 
   return (
     <>
@@ -262,16 +287,16 @@ ${d.remarks?`<p style="margin-top:16px;font-size:12px;color:#718096">Note: ${d.r
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               {isBillingModule && isEdit && (
                 <>
-                  <button type="button" className="btn btn-secondary btn-sm" onClick={handleWhatsApp} title="Share via WhatsApp">
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={handleWhatsApp}>
                     <MessageCircle size={14} /> WhatsApp
                   </button>
-                  <button type="button" className="btn btn-secondary btn-sm" onClick={handlePrint} title="Print Invoice">
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={handlePrint}>
                     <Printer size={14} /> Print
                   </button>
                 </>
               )}
               {isHousekeepingModule && isEdit && (
-                <button type="button" className="btn btn-secondary btn-sm" onClick={handleHousekeepingWhatsApp} title="Notify staff via WhatsApp">
+                <button type="button" className="btn btn-secondary btn-sm" onClick={handleHousekeepingWhatsApp}>
                   <MessageCircle size={14} /> Notify Staff
                 </button>
               )}
@@ -293,7 +318,9 @@ ${d.remarks?`<p style="margin-top:16px;font-size:12px;color:#718096">Note: ${d.r
                   <BedDouble size={14} />
                   Room {data._allocated_room} ({data._allocated_room_type}) allocated
                 </div>
-              )} 
+              )}
+
+              {/* Title / Room Name */}
               <div className="form-group">
                 <label className="form-label">
                   {moduleSlug === 'rooms' ? 'Room Name' : 'Title'}
@@ -301,7 +328,7 @@ ${d.remarks?`<p style="margin-top:16px;font-size:12px;color:#718096">Note: ${d.r
                 <input className="form-input" value={title} onChange={e => setTitle(e.target.value)}
                   placeholder={moduleSlug === 'rooms' ? 'e.g. Sea View, Pool View...' : 'Optional'} />
               </div>
-              
+
               {statusField && (
                 <div className="form-group">
                   <label className="form-label">
@@ -347,6 +374,25 @@ ${d.remarks?`<p style="margin-top:16px;font-size:12px;color:#718096">Note: ${d.r
                   )}
                 </div>
               )}
+
+              {/* Food Bill — Add Items button */}
+              {isFoodBill && (
+                <div>
+                  <button type="button" className="btn btn-secondary" onClick={() => setShowFoodOrder(true)}>
+                    <ShoppingCart size={14} /> {data._food_items?.length ? `Edit Food Items (${data._food_items.length} items)` : 'Add Food Items'}
+                  </button>
+                  {data._food_items?.length > 0 && (
+                    <div style={{ marginTop: 10, padding: '10px 14px', background: 'var(--color-surface-2)', borderRadius: 'var(--radius-md)', fontSize: 12 }}>
+                      {data._food_items.map((item, i) => (
+                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: i < data._food_items.length - 1 ? '1px solid var(--color-border)' : 'none' }}>
+                          <span>{item.name} × {item.qty}</span>
+                          <span style={{ fontFamily: 'monospace' }}>₹{(item.price * item.qty).toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="modal-footer">
@@ -367,7 +413,158 @@ ${d.remarks?`<p style="margin-top:16px;font-size:12px;color:#718096">Note: ${d.r
           onCancel={() => { setShowRoomPicker(false); setPendingStatus(null); }}
         />
       )}
+
+      {showFoodOrder && (
+        <FoodOrderModal
+          existingItems={data._food_items || []}
+          onConfirm={handleFoodOrderConfirm}
+          onCancel={() => setShowFoodOrder(false)}
+        />
+      )}
     </>
+  );
+};
+
+// ── Food Order Modal ──────────────────────────────────────────────────────────
+const FoodOrderModal = ({ existingItems, onConfirm, onCancel }) => {
+  const [menuItems, setMenuItems] = useState([]);
+  const [loading, setLoading]     = useState(true);
+  const [order, setOrder]         = useState({}); // { itemId: qty }
+  const [activeCategory, setActiveCategory] = useState('all');
+
+  useEffect(() => {
+    recordAPI.list('menu', { limit: 200 }).then(res => {
+      if (res.success) {
+        const items = res.data.filter(r => r.data?.available !== 'unavailable');
+        setMenuItems(items);
+        // Pre-fill existing order
+        if (existingItems.length) {
+          const existing = {};
+          existingItems.forEach(item => { existing[item.id] = item.qty; });
+          setOrder(existing);
+        }
+      }
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  const categories = ['all', ...new Set(menuItems.map(m => m.data?.category).filter(Boolean))];
+
+  const filtered = activeCategory === 'all'
+    ? menuItems
+    : menuItems.filter(m => m.data?.category === activeCategory);
+
+  const setQty = (id, qty) => {
+    setOrder(prev => ({ ...prev, [id]: Math.max(0, qty) }));
+  };
+
+  const handleConfirm = () => {
+    const items = menuItems
+      .filter(m => (order[m.id] || 0) > 0)
+      .map(m => ({
+        id:    m.id,
+        name:  m.data?.item_name || m.title,
+        price: parseFloat(m.data?.price) || 0,
+        qty:   order[m.id],
+        category: m.data?.category,
+      }));
+    if (!items.length) { toast.error('Please select at least one item'); return; }
+    onConfirm(items);
+  };
+
+  const totalAmount = menuItems.reduce((s, m) => s + ((order[m.id] || 0) * (parseFloat(m.data?.price) || 0)), 0);
+  const totalItems  = Object.values(order).reduce((s, q) => s + (q || 0), 0);
+
+  const CATEGORY_LABELS = {
+    breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner',
+    beverages: 'Beverages', snacks: 'Snacks', desserts: 'Desserts', room_service: 'Room Service',
+  };
+
+  return (
+    <div className="modal-overlay" style={{ zIndex: 1100 }}>
+      <div className="modal" style={{ maxWidth: 620 }}>
+        <div className="modal-header">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ShoppingCart size={18} style={{ color: 'var(--color-secondary)' }} />
+            <h3 className="modal-title">Food Order</h3>
+          </div>
+          <button className="btn btn-ghost btn-icon" onClick={onCancel}><X size={17} /></button>
+        </div>
+
+        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {/* Category tabs */}
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {categories.map(cat => (
+              <button key={cat} type="button"
+                className={`btn btn-sm ${activeCategory === cat ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => setActiveCategory(cat)}>
+                {cat === 'all' ? 'All' : (CATEGORY_LABELS[cat] || cat)}
+              </button>
+            ))}
+          </div>
+
+          {loading ? (
+            <div className="page-loader"><div className="spinner" /></div>
+          ) : filtered.length === 0 ? (
+            <div className="empty-state" style={{ padding: 40 }}>
+              <p>No menu items found. Add items in the Menu module first.</p>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 360, overflowY: 'auto' }}>
+              {filtered.map(item => {
+                const qty = order[item.id] || 0;
+                const isVeg = item.data?.is_veg === 'veg' || item.data?.is_veg === 'vegan';
+                return (
+                  <div key={item.id} style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '10px 14px',
+                    border: `1.5px solid ${qty > 0 ? 'var(--color-secondary)' : 'var(--color-border)'}`,
+                    borderRadius: 'var(--radius-md)',
+                    background: qty > 0 ? '#fff7ed' : 'var(--color-surface)',
+                    transition: 'all 0.15s',
+                  }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ width: 10, height: 10, borderRadius: 2, border: `2px solid ${isVeg ? '#16a34a' : '#dc2626'}`, display: 'inline-block', flexShrink: 0 }}>
+                          <span style={{ display: 'block', width: 4, height: 4, borderRadius: '50%', background: isVeg ? '#16a34a' : '#dc2626', margin: '1px auto' }} />
+                        </span>
+                        <span style={{ fontWeight: 500, fontSize: 13 }}>{item.data?.item_name || item.title}</span>
+                      </div>
+                      {item.data?.description && <div style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 2, marginLeft: 16 }}>{item.data.description}</div>}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ fontWeight: 600, color: 'var(--color-secondary)', fontSize: 13, minWidth: 60, textAlign: 'right' }}>
+                        ₹{Number(item.data?.price || 0).toLocaleString()}
+                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <button type="button" onClick={() => setQty(item.id, qty - 1)}
+                          style={{ width: 26, height: 26, borderRadius: 6, border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
+                        <span style={{ minWidth: 20, textAlign: 'center', fontWeight: 600, fontSize: 13 }}>{qty}</span>
+                        <button type="button" onClick={() => setQty(item.id, qty + 1)}
+                          style={{ width: 26, height: 26, borderRadius: 6, border: '1.5px solid var(--color-secondary)', background: qty > 0 ? 'var(--color-secondary)' : 'var(--color-surface)', color: qty > 0 ? 'white' : 'inherit', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {totalItems > 0 && (
+            <div style={{ padding: '12px 16px', background: 'var(--color-surface-2)', borderRadius: 'var(--radius-md)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 13 }}>{totalItems} item(s) selected</span>
+              <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--color-secondary)' }}>₹{totalAmount.toLocaleString()}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="modal-footer">
+          <button className="btn btn-secondary" onClick={onCancel}>Cancel</button>
+          <button className="btn btn-primary" onClick={handleConfirm} disabled={totalItems === 0}>
+            <CheckCircle size={14} /> Confirm Order · ₹{totalAmount.toLocaleString()}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 };
 

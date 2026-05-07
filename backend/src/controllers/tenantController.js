@@ -94,17 +94,21 @@ const updateTenant = asyncHandler(async (req, res) => {
 });
 
 const updateMyTenant = asyncHandler(async (req, res) => {
-  const { logoUrl, primaryColor, secondaryColor, address, gstNumber, phone, website, invoicePrefix, staffSettings } = req.body;
+  const { logoUrl, primaryColor, secondaryColor, address, gstNumber, phone, website, invoicePrefix, staffSettings, gstRates } = req.body;
   const r = await query(
     `UPDATE tenants SET
        logo_url=COALESCE($1,logo_url), primary_color=COALESCE($2,primary_color),
        secondary_color=COALESCE($3,secondary_color), address=COALESCE($4,address),
        gst_number=COALESCE($5,gst_number), phone=COALESCE($6,phone),
        website=COALESCE($7,website), invoice_prefix=COALESCE($8,invoice_prefix),
-       staff_settings=COALESCE($9::jsonb,staff_settings), updated_at=NOW()
-     WHERE id=$10 RETURNING *`,
+       staff_settings=COALESCE($9::jsonb,staff_settings),
+       gst_rates=COALESCE($10::jsonb,gst_rates),
+       updated_at=NOW()
+     WHERE id=$11 RETURNING *`,
     [logoUrl, primaryColor, secondaryColor, address, gstNumber, phone, website, invoicePrefix,
-     staffSettings ? JSON.stringify(staffSettings) : null, req.tenantId]
+     staffSettings ? JSON.stringify(staffSettings) : null,
+     gstRates ? JSON.stringify(gstRates) : null,
+     req.tenantId]
   );
   if (!r.rows[0]) return res.status(404).json({ success: false, message: 'Tenant not found' });
   sendSuccess(res, r.rows[0], 'Hotel info updated');
