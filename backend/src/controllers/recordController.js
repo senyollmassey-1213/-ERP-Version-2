@@ -307,7 +307,7 @@ async function autoCloseFoodTab(req, booking, roomBillRecord) {
     const foodItems = tab.data?._food_items || [];
     if (!foodItems.length) return;
 
-    const tenantInfoR = await query(SELECT invoice_prefix FROM tenants WHERE id=$1, [req.tenantId]);
+    const tenantInfoR = await query('SELECT invoice_prefix FROM tenants WHERE id=$1', [req.tenantId]);
     const prefix = tenantInfoR.rows[0]?.invoice_prefix || 'INV';
     const countR = await query(
       SELECT COUNT(*) FROM records r JOIN modules m ON m.id=r.module_id WHERE r.tenant_id=$1 AND m.slug='billing',
