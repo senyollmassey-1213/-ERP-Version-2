@@ -285,6 +285,58 @@ const deleteRecord = asyncHandler(async (req, res) => {
   sendSuccess(res, {}, 'Record deleted');
 });
 
+// ── Auto-close open food tab into food bill on checkout ───────────────────────
+async function autoCloseFoodTab(req, booking, roomBillRecord) {
+  try {
+    const billingModR = await query(
+      `SELECT m.id FROM modules m JOIN tenant_modules tm ON tm.module_id=m.id
+       WHERE m.slug='billing' AND tm.tenant_id=$1 AND tm.is_enabled=true`,
+      [req.tenantId]
+    );
+    if (!billingModR.rows[0]) return;
+
+    const tabR = await query(
+      `SELECT * FROM records WHERE tenant_id=$1 AND module_id=$2
+       AND status='open_tab' AND data->>'bill_type'='food_bill'
+       AND data->>'linked_booking'=$3 AND is_archived=false LIMIT 1`,
+      [req.tenantId, billingModR.rows[0].id, booking.record_number]
+    );
+    if (!tabR.rows[0]) return;
+
+    const tab = tabR.rows[0];
+    const foodItems = tab.data?._food_items || [];
+    if (!foodItems.length) return;
+
+    const tenantInfoR = await query(SELECT invoice_prefix FROM tenants WHERE id=$1, [req.tenantId]);
+    const prefix = tenantInfoR.rows[0]?.invoice_prefix || 'INV';
+    const countR = await query(
+      SELECT COUNT(*) FROM records r JOIN modules m ON m.id=r.module_id WHERE r.tenant_id=$1 AND m.slug='billing',
+      [req.tenantId]
+    );
+    const invoiceNum = ${prefix}-${String(parseInt(countR.rows[0].count) + 1).padStart(5, '0')};
+
+    const updatedData = {
+      ...tab.data,
+      invoice_number:   invoiceNum,
+      status:           'unpaid',
+      payment_status:   'unpaid',
+      guest_name:       booking.data?.guest_name || tab.data?.guest_name || '',
+      room_number:      booking.data?.room_number || '',
+      linked_booking:   booking.record_number,
+      linked_room_bill: roomBillRecord.record_number,
+      _linked_from:     booking.record_number,
+    };
+
+    await query(
+      UPDATE records SET status='unpaid', data=$1::jsonb, updated_at=NOW() WHERE id=$2,
+      [JSON.stringify(updatedData), tab.id]
+    );
+    console.log(`  🍽️ Food tab closed → ${invoiceNum} for ${booking.data?.guest_name}`);
+  } catch (err) {
+    console.error('Food tab auto-close error:', err.message);
+  }
+}
+
 // ── WORKFLOW ENGINE ────────────────────────────────────────────────────────────
 async function triggerWorkflow(req, record, oldStatus, newStatus) {
   try {
@@ -381,11 +433,16 @@ async function triggerWorkflow(req, record, oldStatus, newStatus) {
     );
 
     await query(
-      `INSERT INTO workflow_log (tenant_id, from_record_id, to_record_id, from_module_id, to_module_id, trigger_status, triggered_by) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      INSERT INTO workflow_log (tenant_id, from_record_id, to_record_id, from_module_id, to_module_id, trigger_status, triggered_by) VALUES ($1,$2,$3,$4,$5,$6,$7),
       [req.tenantId, record.id, newRecR.rows[0].id, record.module_id, toModuleId, newStatus, req.user.id]
     );
 
-    console.log(`  ↪ Workflow: ${fromSlug} → ${rule.toSlug} (trigger: ${newStatus}) → created ${newNumber}`);
+    // ── Hotel: on checkout, auto-close open food tab into a food bill ─────
+    if (rule.toSlug === 'billing' && fromSlug === 'bookings' && newStatus === 'checked_out') {
+      await autoCloseFoodTab(req, record, newRecR.rows[0]);
+    }
+
+    console.log(`  ↪️ Workflow: ${fromSlug} → ${rule.toSlug} (trigger: ${newStatus}) → created ${newNumber}`);
   } catch (err) {
     console.error('Workflow trigger error:', err.message);
   }
