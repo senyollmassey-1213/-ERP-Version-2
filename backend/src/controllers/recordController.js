@@ -81,13 +81,11 @@ async function createHousekeepingTask(req, booking) {
     );
     if (!hkModR.rows[0]) return;
 
-    // Get default housekeeping staff from tenant settings
     const tenantR = await query(`SELECT staff_settings, industry_id FROM tenants WHERE id=$1`, [req.tenantId]);
     const staffSettings = tenantR.rows[0]?.staff_settings || {};
     const defaultHKStaff = staffSettings.default_housekeeping_user_id || null;
     const defaultHKName  = staffSettings.default_housekeeping_name || '';
 
-    // Get assigned user name if set
     let assignedName = defaultHKName;
     if (defaultHKStaff && !assignedName) {
       const userR = await query(`SELECT first_name, last_name FROM users WHERE id=$1`, [defaultHKStaff]);
@@ -180,7 +178,6 @@ const createRecord = asyncHandler(async (req, res) => {
   );
   if (!modR.rows[0]) return res.status(404).json({ success: false, message: 'Module not found or disabled' });
 
-  // ── Hotel: block double booking ───────────────────────────────────────────
   if (moduleSlug === 'bookings' && data.room_number) {
     const roomStatus = await getRoomStatus(req.tenantId, data.room_number);
     if (roomStatus === 'occupied' || roomStatus === 'reserved') {
@@ -202,7 +199,6 @@ const createRecord = asyncHandler(async (req, res) => {
     [req.tenantId, modR.rows[0].id, industryId, recordNumber, title, JSON.stringify(data), resolvedStatus, assignedTo || null, req.user.id]
   );
 
-  // Mark room as reserved when booking is created
   if (moduleSlug === 'bookings' && data.room_number) {
     await updateRoomStatus(req.tenantId, data.room_number, 'reserved');
   }
@@ -222,10 +218,8 @@ const updateRecord = asyncHandler(async (req, res) => {
   if (!oldR.rows[0]) return res.status(404).json({ success: false, message: 'Record not found' });
   const old = oldR.rows[0];
 
-  // data.status always takes priority
   const resolvedStatus = (data && data.status) ? data.status : (status || old.status);
 
-  // ── Hotel: block CRM from converting twice ────────────────────────────────
   const fromModR = await query(`SELECT slug FROM modules WHERE id=$1`, [old.module_id]);
   const fromSlug = fromModR.rows[0]?.slug;
   if (fromSlug === 'crm' && resolvedStatus === 'converted' && old.status === 'converted') {
@@ -235,7 +229,6 @@ const updateRecord = asyncHandler(async (req, res) => {
     });
   }
 
-  // ── Hotel: block double booking on room change ────────────────────────────
   if (fromSlug === 'bookings' && data?.room_number && data.room_number !== old.data?.room_number) {
     const roomStatus = await getRoomStatus(req.tenantId, data.room_number);
     if (roomStatus === 'occupied' || roomStatus === 'reserved') {
@@ -244,11 +237,9 @@ const updateRecord = asyncHandler(async (req, res) => {
         message: `Room ${data.room_number} is already ${roomStatus}. Please select a different room.`
       });
     }
-    // Free old room if room number is being changed
     if (old.data?.room_number) {
       await updateRoomStatus(req.tenantId, old.data.room_number, 'vacant');
     }
-    // Reserve new room
     await updateRoomStatus(req.tenantId, data.room_number, 'reserved');
   }
 
@@ -273,7 +264,6 @@ const updateRecord = asyncHandler(async (req, res) => {
 });
 
 const deleteRecord = asyncHandler(async (req, res) => {
-  // If deleting a booking, free the room
   const recR = await query(
     `SELECT r.*, m.slug FROM records r JOIN modules m ON m.id=r.module_id WHERE r.id=$1 AND r.tenant_id=$2`,
     [req.params.id, req.tenantId]
@@ -307,7 +297,7 @@ async function autoCloseFoodTab(req, booking, roomBillRecord) {
     const foodItems = tab.data?._food_items || [];
     if (!foodItems.length) return;
 
-    const tenantInfoR = await query('SELECT invoice_prefix FROM tenants WHERE id=$1', [req.tenantId]);
+    const tenantInfoR = await query(`SELECT invoice_prefix FROM tenants WHERE id=$1`, [req.tenantId]);
     const prefix = tenantInfoR.rows[0]?.invoice_prefix || 'INV';
     const countR = await query(
       `SELECT COUNT(*) FROM records r JOIN modules m ON m.id=r.module_id WHERE r.tenant_id=$1 AND m.slug='billing'`,
@@ -328,10 +318,10 @@ async function autoCloseFoodTab(req, booking, roomBillRecord) {
     };
 
     await query(
-      UPDATE records SET status='unpaid', data=$1::jsonb, updated_at=NOW() WHERE id=$2,
+      `UPDATE records SET status='unpaid', data=$1::jsonb, updated_at=NOW() WHERE id=$2`,
       [JSON.stringify(updatedData), tab.id]
     );
-    console.log(`  🍽️ Food tab closed → ${invoiceNum} for ${booking.data?.guest_name}`);
+    console.log(`  🍽 Food tab closed → ${invoiceNum} for ${booking.data?.guest_name}`);
   } catch (err) {
     console.error('Food tab auto-close error:', err.message);
   }
@@ -360,17 +350,16 @@ async function triggerWorkflow(req, record, oldStatus, newStatus) {
         if (newStatus === 'cancelled')   await updateRoomStatus(req.tenantId, roomNum, 'vacant');
         if (newStatus === 'no_show')     await updateRoomStatus(req.tenantId, roomNum, 'vacant');
       }
-      // Auto-create housekeeping on checkout
-    if (newStatus === 'checked_out') {
-      await createHousekeepingTask(req, record);
+      if (newStatus === 'checked_out') {
+        await createHousekeepingTask(req, record);
+      }
     }
-  }
 
-  // When housekeeping task complete → mark room vacant
-  if (industrySlug === 'hotel_restaurant' && fromSlug === 'housekeeping' && newStatus === 'complete') {
-    const roomNum = record.data?.room_number;
-    if (roomNum) await updateRoomStatus(req.tenantId, roomNum, 'vacant');
-  }
+    // When housekeeping task complete → mark room vacant
+    if (industrySlug === 'hotel_restaurant' && fromSlug === 'housekeeping' && newStatus === 'complete') {
+      const roomNum = record.data?.room_number;
+      if (roomNum) await updateRoomStatus(req.tenantId, roomNum, 'vacant');
+    }
 
     const rules = WORKFLOW_RULES[industrySlug] || [];
     const rule = rules.find(r => r.fromSlug === fromSlug && r.triggerStatus === newStatus);
@@ -391,19 +380,15 @@ async function triggerWorkflow(req, record, oldStatus, newStatus) {
     copiedData['_linked_from'] = record.record_number;
     copiedData['_linked_record_id'] = record.id;
 
-    // For hotel: pre-fill room from CRM allocation into booking
     if (rule.toSlug === 'bookings' && record.data['_allocated_room']) {
       copiedData['room_number']    = record.data['_allocated_room'];
       copiedData['room_type']      = record.data['_allocated_room_type'];
       copiedData['rate_per_night'] = record.data['_allocated_rate'];
-      // Mark room as reserved immediately when booking is auto-created
       await updateRoomStatus(req.tenantId, record.data['_allocated_room'], 'reserved');
     }
 
-    // For billing auto-created from checkout — set bill_type and invoice number
     if (rule.toSlug === 'billing') {
       copiedData['bill_type'] = 'room_bill';
-      // Generate sequential invoice number
       const tenantInfoR = await query(`SELECT invoice_prefix FROM tenants WHERE id=$1`, [req.tenantId]);
       const prefix = tenantInfoR.rows[0]?.invoice_prefix || 'INV';
       const countR = await query(
@@ -416,7 +401,6 @@ async function triggerWorkflow(req, record, oldStatus, newStatus) {
 
     const newNumber = await generateRecordNumber(req.tenantId, rule.toSlug);
 
-    // Use guest name as title for billing, guest+room for bookings
     let newTitle;
     if (rule.toSlug === 'billing') {
       newTitle = `${copiedData.guest_name || 'Bill'} - Room Bill`;
@@ -433,16 +417,15 @@ async function triggerWorkflow(req, record, oldStatus, newStatus) {
     );
 
     await query(
-      INSERT INTO workflow_log (tenant_id, from_record_id, to_record_id, from_module_id, to_module_id, trigger_status, triggered_by) VALUES ($1,$2,$3,$4,$5,$6,$7),
+      `INSERT INTO workflow_log (tenant_id, from_record_id, to_record_id, from_module_id, to_module_id, trigger_status, triggered_by) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       [req.tenantId, record.id, newRecR.rows[0].id, record.module_id, toModuleId, newStatus, req.user.id]
     );
 
-    // ── Hotel: on checkout, auto-close open food tab into a food bill ─────
     if (rule.toSlug === 'billing' && fromSlug === 'bookings' && newStatus === 'checked_out') {
       await autoCloseFoodTab(req, record, newRecR.rows[0]);
     }
 
-    console.log(`  ↪️ Workflow: ${fromSlug} → ${rule.toSlug} (trigger: ${newStatus}) → created ${newNumber}`);
+    console.log(`  ↪ Workflow: ${fromSlug} → ${rule.toSlug} (trigger: ${newStatus}) → created ${newNumber}`);
   } catch (err) {
     console.error('Workflow trigger error:', err.message);
   }
