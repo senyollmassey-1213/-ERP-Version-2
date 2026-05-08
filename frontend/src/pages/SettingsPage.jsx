@@ -196,7 +196,21 @@ const HotelInfoTab = () => {
               </select>
             </div>
           </div>
-
+        {/* Webhook URL */}
+          <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 16 }}>
+            <h4 style={{ fontSize: 13, marginBottom: 4, color: 'var(--color-text-2)' }}>🔗 Third Party Booking Webhook</h4>
+            <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 8 }}>Share this URL with your web developer or OTA to auto-create bookings.</p>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input className="form-input" readOnly
+                value={`https://backend-production-4750.up.railway.app/api/webhook/${window.location.hostname.includes('localhost') ? 'your-hotel-slug' : ''}`}
+                style={{ fontFamily: 'monospace', fontSize: 11, background: 'var(--color-surface-2)' }} />
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => {
+                navigator.clipboard.writeText(`https://backend-production-4750.up.railway.app/api/webhook/YOUR-HOTEL-SLUG/booking`);
+                toast.success('URL copied!');
+              }}>Copy</button>
+            </div>
+            <p style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 4 }}>Replace YOUR-HOTEL-SLUG with your company slug. Test with GET /ping</p>
+          </div>
           {/* Preview */}
           <div style={{ padding: '12px 16px', background: 'var(--color-surface-2)', borderRadius: 'var(--radius-md)', fontSize: 12, color: 'var(--color-text-3)', lineHeight: 1.8 }}>
             <strong style={{ color: 'var(--color-text-2)' }}>Invoice preview:</strong><br />

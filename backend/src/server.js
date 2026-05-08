@@ -36,6 +36,7 @@ app.use('/api/modules',        require('./routes/modules'));
 app.use('/api/records',        require('./routes/records'));
 app.use('/api/dashboard',      require('./routes/dashboard'));
 app.use('/api/skus',           require('./routes/skus'));
+app.use('/api/webhook',        require('./routes/webhook'));
 
 app.use(notFound);
 app.use(errorHandler);

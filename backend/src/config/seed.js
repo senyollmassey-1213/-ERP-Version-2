@@ -147,7 +147,11 @@ const TITLE_HEADS = {
       { name: 'payment_method', label: 'Payment Method',  field_type: 'dropdown', sort_order: 9,
         options: [{label:'Bank Transfer',value:'bank'},{label:'Cash',value:'cash'},{label:'Cheque',value:'cheque'},{label:'UPI',value:'upi'}]},
       { name: 'remarks',        label: 'Remarks',         field_type: 'textarea', sort_order: 10 },
+      { name: 'discount',       label: 'Discount Amount', field_type: 'currency', sort_order: 11 },
+      { name: 'final_total',    label: 'Final Total',     field_type: 'currency', sort_order: 12 },
+      { name: 'remarks',        label: 'Remarks',         field_type: 'textarea', sort_order: 13 },
     ],
+   
     reports: [
       { name: 'report_type',  label: 'Report Type',  field_type: 'dropdown', is_required: true, sort_order: 1,
         options: [{label:'Sales Summary',value:'sales_summary'},{label:'Production Summary',value:'production_summary'},{label:'Purchase Summary',value:'purchase_summary'},{label:'Billing Summary',value:'billing_summary'},{label:'Inventory Status',value:'inventory_status'}]},
@@ -373,8 +377,10 @@ const TITLE_HEADS = {
         options: [{label:'Walk-in',value:'walk_in'},{label:'OTA',value:'ota'},{label:'Phone',value:'phone'},{label:'Website',value:'website'},{label:'Agent',value:'agent'}]},
       { name: 'status',        label: 'Status',          field_type: 'dropdown', is_required: true,  sort_order: 14,
         options: [{label:'Reserved',value:'reserved'},{label:'Checked In',value:'checked_in'},{label:'Checked Out',value:'checked_out'},{label:'Cancelled',value:'cancelled'},{label:'No Show',value:'no_show'}]},
-      { name: 'special_requests', label: 'Special Requests', field_type: 'textarea', sort_order: 15 },
-      { name: 'remarks',       label: 'Remarks',         field_type: 'textarea', sort_order: 16 },
+      { name: 'discount',      label: 'Discount Amount', field_type: 'currency', sort_order: 15 },
+      { name: 'discounted_amount', label: 'Amount After Discount', field_type: 'currency', sort_order: 16 },
+      { name: 'special_requests', label: 'Special Requests', field_type: 'textarea', sort_order: 17 },
+      { name: 'remarks',       label: 'Remarks',         field_type: 'textarea', sort_order: 18 },
     ],
     menu: [
       { name: 'item_name',     label: 'Item Name',       field_type: 'text',     is_required: true,  sort_order: 1 },
