@@ -313,7 +313,7 @@ async function autoCloseFoodTab(req, booking, roomBillRecord) {
       `SELECT COUNT(*) FROM records r JOIN modules m ON m.id=r.module_id WHERE r.tenant_id=$1 AND m.slug='billing'`,
       [req.tenantId]
     );
-    const invoiceNum = ${prefix}-${String(parseInt(countR.rows[0].count) + 1).padStart(5, '0')};
+    const invoiceNum = `${prefix}-${String(parseInt(countR.rows[0].count) + 1).padStart(5, '0')}`;
 
     const updatedData = {
       ...tab.data,
