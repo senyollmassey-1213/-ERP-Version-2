@@ -16,6 +16,7 @@ import ScanPage           from 'pages/ScanPage';
 import ScanReviewPage     from 'pages/ScanReviewPage';
 import QRBulkGeneratePage from 'pages/QRBulkGeneratePage';
 import MobileHomePage     from 'pages/MobileHomePage';
+import PublicOrderPage    from 'pages/PublicOrderPage';
 
 const Loader = () => (
   <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center' }}>
@@ -76,6 +77,7 @@ const AppRoutes = () => {
         <Route path="/qr-generate" element={<QRBulkGeneratePage />} />
       </Route>
 
+      <Route path="/order/:hotelSlug" element={<PublicOrderPage />} />
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

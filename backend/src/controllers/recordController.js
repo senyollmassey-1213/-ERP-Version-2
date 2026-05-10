@@ -82,7 +82,7 @@ async function createHousekeepingTask(req, booking) {
     if (!hkModR.rows[0]) return;
 
     const tenantR = await query(`SELECT staff_settings, industry_id FROM tenants WHERE id=$1`, [req.tenantId]);
-    const staffSettings = tenantR.rows[0]?.staff_settings || {};
+    const staffSettings  = tenantR.rows[0]?.staff_settings || {};
     const defaultHKStaff = staffSettings.default_housekeeping_user_id || null;
     const defaultHKName  = staffSettings.default_housekeeping_name || '';
 
@@ -138,13 +138,13 @@ const listRecords = asyncHandler(async (req, res) => {
   if (status) { conditions.push(`(r.status=$${idx} OR r.data->>'status'=$${idx})`); params.push(status); idx++; }
   if (search)  { conditions.push(`(r.title ILIKE $${idx} OR r.record_number ILIKE $${idx} OR r.data->>'guest_name' ILIKE $${idx} OR r.data->>'room_number' ILIKE $${idx})`); params.push(`%${search}%`); idx++; }
 
-  const where = conditions.join(' AND ');
+  const where  = conditions.join(' AND ');
   const countR = await query(`SELECT COUNT(*) FROM records r WHERE ${where}`, params);
   const r = await query(
     `SELECT r.*, u.first_name||' '||u.last_name AS assigned_to_name,
             cu.first_name||' '||cu.last_name AS created_by_name
      FROM records r
-     LEFT JOIN users u ON u.id=r.assigned_to
+     LEFT JOIN users u  ON u.id=r.assigned_to
      LEFT JOIN users cu ON cu.id=r.created_by
      WHERE ${where} ORDER BY r.created_at DESC LIMIT $${idx} OFFSET $${idx+1}`,
     [...params, limit, offset]
@@ -158,7 +158,7 @@ const getRecord = asyncHandler(async (req, res) => {
             u.first_name||' '||u.last_name AS assigned_to_name,
             cu.first_name||' '||cu.last_name AS created_by_name
      FROM records r JOIN modules m ON m.id=r.module_id
-     LEFT JOIN users u ON u.id=r.assigned_to
+     LEFT JOIN users u  ON u.id=r.assigned_to
      LEFT JOIN users cu ON cu.id=r.created_by
      WHERE r.id=$1 AND r.tenant_id=$2`,
     [req.params.id, req.tenantId]
@@ -188,8 +188,8 @@ const createRecord = asyncHandler(async (req, res) => {
     }
   }
 
-  const tenantR = await query(`SELECT industry_id FROM tenants WHERE id=$1`, [req.tenantId]);
-  const industryId = tenantR.rows[0].industry_id;
+  const tenantR      = await query(`SELECT industry_id FROM tenants WHERE id=$1`, [req.tenantId]);
+  const industryId   = tenantR.rows[0].industry_id;
   const recordNumber = await generateRecordNumber(req.tenantId, moduleSlug);
   const resolvedStatus = (data && data.status) ? data.status : status;
 
@@ -222,6 +222,7 @@ const updateRecord = asyncHandler(async (req, res) => {
 
   const fromModR = await query(`SELECT slug FROM modules WHERE id=$1`, [old.module_id]);
   const fromSlug = fromModR.rows[0]?.slug;
+
   if (fromSlug === 'crm' && resolvedStatus === 'converted' && old.status === 'converted') {
     return res.status(409).json({
       success: false,
@@ -293,7 +294,7 @@ async function autoCloseFoodTab(req, booking, roomBillRecord) {
     );
     if (!tabR.rows[0]) return;
 
-    const tab = tabR.rows[0];
+    const tab       = tabR.rows[0];
     const foodItems = tab.data?._food_items || [];
     if (!foodItems.length) return;
 
@@ -355,14 +356,14 @@ async function triggerWorkflow(req, record, oldStatus, newStatus) {
       }
     }
 
-    // When housekeeping task complete → mark room vacant
+    // ── Housekeeping complete → room vacant ───────────────────────────────
     if (industrySlug === 'hotel_restaurant' && fromSlug === 'housekeeping' && newStatus === 'complete') {
       const roomNum = record.data?.room_number;
       if (roomNum) await updateRoomStatus(req.tenantId, roomNum, 'vacant');
     }
 
     const rules = WORKFLOW_RULES[industrySlug] || [];
-    const rule = rules.find(r => r.fromSlug === fromSlug && r.triggerStatus === newStatus);
+    const rule  = rules.find(r => r.fromSlug === fromSlug && r.triggerStatus === newStatus);
     if (!rule) return;
 
     const toModR = await query(
@@ -377,7 +378,7 @@ async function triggerWorkflow(req, record, oldStatus, newStatus) {
     for (const field of rule.copyFields) {
       if (record.data[field] !== undefined) copiedData[field] = record.data[field];
     }
-    copiedData['_linked_from'] = record.record_number;
+    copiedData['_linked_from']      = record.record_number;
     copiedData['_linked_record_id'] = record.id;
 
     if (rule.toSlug === 'bookings' && record.data['_allocated_room']) {
@@ -390,8 +391,8 @@ async function triggerWorkflow(req, record, oldStatus, newStatus) {
     if (rule.toSlug === 'billing') {
       copiedData['bill_type'] = 'room_bill';
       const tenantInfoR = await query(`SELECT invoice_prefix FROM tenants WHERE id=$1`, [req.tenantId]);
-      const prefix = tenantInfoR.rows[0]?.invoice_prefix || 'INV';
-      const countR = await query(
+      const prefix      = tenantInfoR.rows[0]?.invoice_prefix || 'INV';
+      const countR      = await query(
         `SELECT COUNT(*) FROM records r JOIN modules m ON m.id=r.module_id WHERE r.tenant_id=$1 AND m.slug='billing'`,
         [req.tenantId]
       );
@@ -421,6 +422,7 @@ async function triggerWorkflow(req, record, oldStatus, newStatus) {
       [req.tenantId, record.id, newRecR.rows[0].id, record.module_id, toModuleId, newStatus, req.user.id]
     );
 
+    // ── Auto-close food tab on checkout ───────────────────────────────────
     if (rule.toSlug === 'billing' && fromSlug === 'bookings' && newStatus === 'checked_out') {
       await autoCloseFoodTab(req, record, newRecR.rows[0]);
     }

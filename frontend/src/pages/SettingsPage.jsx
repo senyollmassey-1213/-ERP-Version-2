@@ -1,8 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, Settings, X, Save, Loader, Trash2, Key, Eye, EyeOff } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Plus, Settings, X, Save, Loader, Trash2, Key, Eye, EyeOff, Printer, Copy } from 'lucide-react';
 import { userAPI, moduleAPI, tenantAPI } from 'services/api';
 import { useAuth } from 'context/AuthContext';
 import toast from 'react-hot-toast';
+import QRCode from 'qrcode';
+
+const FRONTEND_URL = 'https://frontend-production-59b4.up.railway.app';
 
 const SettingsPage = () => {
   const { user: me } = useAuth();
@@ -20,7 +23,6 @@ const SettingsPage = () => {
         <h2 style={{ fontSize: 20 }}>Settings</h2>
         <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 2 }}>Manage users and their module access</p>
       </div>
-
       <div style={{ display: 'flex', gap: 4, background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', padding: 4, width: 'fit-content' }}>
         {TABS.map(t => (
           <button key={t.key} className={`btn btn-sm ${tab === t.key ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setTab(t.key)}>
@@ -28,7 +30,6 @@ const SettingsPage = () => {
           </button>
         ))}
       </div>
-
       {tab === 'users'     && <UsersTab currentUser={me} />}
       {tab === 'hotelinfo' && <HotelInfoTab />}
       {tab === 'profile'   && <ProfileTab />}
@@ -38,24 +39,30 @@ const SettingsPage = () => {
 
 // ── Hotel Info Tab ────────────────────────────────────────────────────────────
 const HotelInfoTab = () => {
+  const { user } = useAuth();
   const [saving, setSaving]   = useState(false);
   const [loading, setLoading] = useState(true);
   const [users, setUsers]     = useState([]);
   const [hotelName, setHotelName] = useState('');
+  const [tenantSlug, setTenantSlug] = useState('');
   const [form, setForm] = useState({
     address: '', phone: '', website: '',
     gstNumber: '', invoicePrefix: 'INV', logoUrl: '',
     defaultHousekeepingUserId: '',
     gstStay: 12, gstFood: 5, gstTransport: 5,
+    numTables: 10,
+    upiId: '', upiQrUrl: '',
+    qrPrimaryColor: '#0b1628', qrAccentColor: '#c75b39',
   });
 
   useEffect(() => {
     Promise.all([tenantAPI.getMyInfo(), userAPI.list({ limit: 100 })]).then(([tenantRes, usersRes]) => {
       if (tenantRes.success && tenantRes.data) {
-        const d = tenantRes.data;
+        const d  = tenantRes.data;
         const ss = d.staff_settings || {};
         const gr = d.gst_rates || {};
         setHotelName(d.name || '');
+        setTenantSlug(d.slug || '');
         setForm({
           address:                   d.address        || '',
           phone:                     d.phone          || '',
@@ -67,6 +74,11 @@ const HotelInfoTab = () => {
           gstStay:      gr.stay      ?? 12,
           gstFood:      gr.food      ?? 5,
           gstTransport: gr.transport ?? 5,
+          numTables:    ss.num_tables        || 10,
+          upiId:        ss.upi_id           || '',
+          upiQrUrl:     ss.upi_qr_url       || '',
+          qrPrimaryColor: ss.qr_primary_color || '#0b1628',
+          qrAccentColor:  ss.qr_accent_color  || '#c75b39',
         });
       }
       if (usersRes.success) setUsers(usersRes.data);
@@ -77,7 +89,14 @@ const HotelInfoTab = () => {
     e.preventDefault();
     setSaving(true);
     try {
-      const staffSettings = { default_housekeeping_user_id: form.defaultHousekeepingUserId || null };
+      const staffSettings = {
+        default_housekeeping_user_id: form.defaultHousekeepingUserId || null,
+        num_tables:       parseInt(form.numTables) || 10,
+        upi_id:           form.upiId,
+        upi_qr_url:       form.upiQrUrl,
+        qr_primary_color: form.qrPrimaryColor,
+        qr_accent_color:  form.qrAccentColor,
+      };
       const gstRates = {
         stay:      parseFloat(form.gstStay)      || 0,
         food:      parseFloat(form.gstFood)      || 0,
@@ -103,7 +122,7 @@ const HotelInfoTab = () => {
         <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 2 }}>Appears on invoices and used for auto-assignments.</p>
       </div>
 
-      <div className="card" style={{ maxWidth: 580 }}>
+      <div className="card" style={{ maxWidth: 600 }}>
         <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
           <div className="form-group">
@@ -150,11 +169,8 @@ const HotelInfoTab = () => {
             <label className="form-label">Logo URL</label>
             <input className="form-input" value={form.logoUrl} onChange={e => setForm({ ...form, logoUrl: e.target.value })} placeholder="https://yourdomain.com/logo.png" />
             {form.logoUrl && (
-              <div style={{ marginTop: 8 }}>
-                <img src={form.logoUrl} alt="Logo preview"
-                  style={{ height: 48, objectFit: 'contain', border: '1px solid var(--color-border)', borderRadius: 6, padding: 4 }}
-                  onError={e => e.target.style.display = 'none'} />
-              </div>
+              <img src={form.logoUrl} alt="Logo preview" style={{ marginTop: 8, height: 48, objectFit: 'contain', border: '1px solid var(--color-border)', borderRadius: 6, padding: 4 }}
+                onError={e => e.target.style.display = 'none'} />
             )}
           </div>
 
@@ -164,24 +180,21 @@ const HotelInfoTab = () => {
             <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 12 }}>Auto-fills on billing when bill type is selected.</p>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
               <div className="form-group">
-                <label className="form-label">Stay / Room GST %</label>
-                <input type="number" className="form-input" value={form.gstStay}
-                  onChange={e => setForm({ ...form, gstStay: e.target.value })} placeholder="12" min={0} max={100} />
+                <label className="form-label">Stay / Room %</label>
+                <input type="number" className="form-input" value={form.gstStay} onChange={e => setForm({ ...form, gstStay: e.target.value })} min={0} max={100} />
               </div>
               <div className="form-group">
-                <label className="form-label">Food & Beverage GST %</label>
-                <input type="number" className="form-input" value={form.gstFood}
-                  onChange={e => setForm({ ...form, gstFood: e.target.value })} placeholder="5" min={0} max={100} />
+                <label className="form-label">Food & Beverage %</label>
+                <input type="number" className="form-input" value={form.gstFood} onChange={e => setForm({ ...form, gstFood: e.target.value })} min={0} max={100} />
               </div>
               <div className="form-group">
-                <label className="form-label">Transport GST %</label>
-                <input type="number" className="form-input" value={form.gstTransport}
-                  onChange={e => setForm({ ...form, gstTransport: e.target.value })} placeholder="5" min={0} max={100} />
+                <label className="form-label">Transport %</label>
+                <input type="number" className="form-input" value={form.gstTransport} onChange={e => setForm({ ...form, gstTransport: e.target.value })} min={0} max={100} />
               </div>
             </div>
           </div>
 
-          {/* Housekeeping Staff */}
+          {/* Housekeeping */}
           <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 16 }}>
             <h4 style={{ fontSize: 13, marginBottom: 4, color: 'var(--color-text-2)' }}>🧹 Housekeeping Assignment</h4>
             <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 12 }}>Auto-assigned when guest checks out.</p>
@@ -196,22 +209,92 @@ const HotelInfoTab = () => {
               </select>
             </div>
           </div>
-        {/* Webhook URL */}
+
+          {/* QR Ordering */}
+          <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 16 }}>
+            <h4 style={{ fontSize: 13, marginBottom: 4, color: 'var(--color-text-2)' }}>📱 QR Table Ordering</h4>
+            <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 12 }}>Customers scan table QR → view menu → place order directly.</p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+              <div className="form-group">
+                <label className="form-label">Number of Tables</label>
+                <input type="number" className="form-input" value={form.numTables}
+                  onChange={e => setForm({ ...form, numTables: e.target.value })} min={1} max={200} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">UPI ID</label>
+                <input className="form-input" value={form.upiId}
+                  onChange={e => setForm({ ...form, upiId: e.target.value })}
+                  placeholder="yourname@upi" style={{ fontFamily: 'monospace' }} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Menu Page Primary Color</label>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <input type="color" value={form.qrPrimaryColor}
+                    onChange={e => setForm({ ...form, qrPrimaryColor: e.target.value })}
+                    style={{ width: 40, height: 36, borderRadius: 6, border: '1px solid var(--color-border)', cursor: 'pointer', padding: 2 }} />
+                  <input className="form-input" value={form.qrPrimaryColor}
+                    onChange={e => setForm({ ...form, qrPrimaryColor: e.target.value })}
+                    style={{ fontFamily: 'monospace', fontSize: 12 }} />
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Menu Page Accent Color</label>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <input type="color" value={form.qrAccentColor}
+                    onChange={e => setForm({ ...form, qrAccentColor: e.target.value })}
+                    style={{ width: 40, height: 36, borderRadius: 6, border: '1px solid var(--color-border)', cursor: 'pointer', padding: 2 }} />
+                  <input className="form-input" value={form.qrAccentColor}
+                    onChange={e => setForm({ ...form, qrAccentColor: e.target.value })}
+                    style={{ fontFamily: 'monospace', fontSize: 12 }} />
+                </div>
+              </div>
+            </div>
+
+            <div className="form-group" style={{ marginBottom: 16 }}>
+              <label className="form-label">UPI Payment QR Image URL</label>
+              <input className="form-input" value={form.upiQrUrl}
+                onChange={e => setForm({ ...form, upiQrUrl: e.target.value })}
+                placeholder="https://yourlink.com/upi-qr.png" />
+              <span className="form-hint">Upload your GPay/PhonePe QR image and paste the URL here.</span>
+              {form.upiQrUrl && (
+                <img src={form.upiQrUrl} alt="UPI QR"
+                  style={{ marginTop: 8, height: 80, objectFit: 'contain', border: '1px solid var(--color-border)', borderRadius: 6 }}
+                  onError={e => e.target.style.display = 'none'} />
+              )}
+            </div>
+
+            {/* Save first reminder */}
+            <p style={{ fontSize: 11, color: '#d97706', marginBottom: 12 }}>⚠️ Save hotel info first, then generate QR codes below.</p>
+
+            {/* QR Grid */}
+            {tenantSlug && (
+              <QRTableGrid
+                hotelSlug={tenantSlug}
+                numTables={parseInt(form.numTables) || 10}
+                restaurantName={hotelName}
+                primaryColor={form.qrPrimaryColor}
+                accentColor={form.qrAccentColor}
+              />
+            )}
+          </div>
+
+          {/* Webhook URL */}
           <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 16 }}>
             <h4 style={{ fontSize: 13, marginBottom: 4, color: 'var(--color-text-2)' }}>🔗 Third Party Booking Webhook</h4>
             <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginBottom: 8 }}>Share this URL with your web developer or OTA to auto-create bookings.</p>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <input className="form-input" readOnly
-                value={`https://backend-production-4750.up.railway.app/api/webhook/${window.location.hostname.includes('localhost') ? 'your-hotel-slug' : ''}`}
+                value={`https://backend-production-4750.up.railway.app/api/webhook/${tenantSlug}/booking`}
                 style={{ fontFamily: 'monospace', fontSize: 11, background: 'var(--color-surface-2)' }} />
               <button type="button" className="btn btn-secondary btn-sm" onClick={() => {
-                navigator.clipboard.writeText(`https://backend-production-4750.up.railway.app/api/webhook/YOUR-HOTEL-SLUG/booking`);
+                navigator.clipboard.writeText(`https://backend-production-4750.up.railway.app/api/webhook/${tenantSlug}/booking`);
                 toast.success('URL copied!');
-              }}>Copy</button>
+              }}><Copy size={13} /></button>
             </div>
-            <p style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 4 }}>Replace YOUR-HOTEL-SLUG with your company slug. Test with GET /ping</p>
           </div>
-          {/* Preview */}
+
+          {/* Invoice Preview */}
           <div style={{ padding: '12px 16px', background: 'var(--color-surface-2)', borderRadius: 'var(--radius-md)', fontSize: 12, color: 'var(--color-text-3)', lineHeight: 1.8 }}>
             <strong style={{ color: 'var(--color-text-2)' }}>Invoice preview:</strong><br />
             <strong>{hotelName}</strong>{form.phone ? ` · ${form.phone}` : ''}{form.gstNumber ? ` · GST: ${form.gstNumber}` : ''}<br />
@@ -224,6 +307,101 @@ const HotelInfoTab = () => {
           </button>
         </form>
       </div>
+    </div>
+  );
+};
+
+// ── QR Table Grid ─────────────────────────────────────────────────────────────
+const QRTableGrid = ({ hotelSlug, numTables, restaurantName, primaryColor = '#0b1628', accentColor = '#c75b39' }) => {
+  const [qrImages, setQrImages]     = useState({});
+  const [generating, setGenerating] = useState(false);
+
+  const generateQRs = useCallback(async () => {
+    setGenerating(true);
+    const images = {};
+    for (let i = 1; i <= Math.min(numTables, 200); i++) {
+      const url = `${FRONTEND_URL}/order/${hotelSlug}?table=${i}`;
+      try {
+        images[i] = await QRCode.toDataURL(url, {
+          width: 200, margin: 1,
+          color: { dark: primaryColor, light: '#ffffff' },
+        });
+      } catch {}
+    }
+    setQrImages(images);
+    setGenerating(false);
+  }, [hotelSlug, numTables, primaryColor]);
+
+  useEffect(() => {
+    if (hotelSlug && numTables > 0) generateQRs();
+  }, [generateQRs]);
+
+  const handlePrintAll = () => {
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
+<title>Table QR Codes — ${restaurantName}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:Arial,sans-serif;background:white}
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:16px}
+  .card{border:1.5px solid #e2e8f0;border-radius:10px;padding:12px;text-align:center;break-inside:avoid}
+  .rname{font-size:9px;font-weight:700;color:${primaryColor};margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px}
+  .tnum{font-size:16px;font-weight:800;color:${accentColor};margin:6px 0 2px}
+  .tlabel{font-size:8px;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px}
+  .qrimg{width:120px;height:120px}
+  .brand{font-size:7px;color:#cbd5e1;margin-top:6px}
+  .brand span{color:${accentColor};font-weight:700}
+  @media print{@page{margin:8mm;size:A4}}
+</style></head><body>
+<div class="grid">
+${Object.entries(qrImages).map(([t, d]) => `
+  <div class="card">
+    <div class="rname">${restaurantName}</div>
+    <img src="${d}" class="qrimg" alt="Table ${t}"/>
+    <div class="tnum">Table ${t}</div>
+    <div class="tlabel">Scan to Order</div>
+    <div class="brand">Powered by <span>Drusshti</span></div>
+  </div>`).join('')}
+</div>
+<script>window.onload=()=>setTimeout(()=>window.print(),300);</script>
+</body></html>`;
+    const win = window.open('', '_blank');
+    win.document.write(html);
+    win.document.close();
+  };
+
+  if (generating) return (
+    <div style={{ padding: 16, textAlign: 'center', fontSize: 13, color: 'var(--color-text-3)' }}>
+      <Loader size={16} className="animate-spin" style={{ marginRight: 8 }} />
+      Generating {numTables} QR codes...
+    </div>
+  );
+
+  if (!Object.keys(qrImages).length) return null;
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <p style={{ fontSize: 12, color: 'var(--color-text-3)' }}>{numTables} QR code{numTables > 1 ? 's' : ''} ready</p>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={handlePrintAll}>
+          <Printer size={13} /> Print All QR Codes
+        </button>
+      </div>
+
+      {/* Preview — first 4 only */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
+        {Object.entries(qrImages).slice(0, 4).map(([tableNum, dataUrl]) => (
+          <div key={tableNum} style={{ border: '1.5px solid var(--color-border)', borderRadius: 10, padding: 10, textAlign: 'center' }}>
+            <div style={{ fontSize: 9, fontWeight: 700, color: primaryColor, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{restaurantName}</div>
+            <img src={dataUrl} alt={`Table ${tableNum}`} style={{ width: '100%', maxWidth: 80, height: 'auto' }} />
+            <div style={{ fontSize: 13, fontWeight: 800, color: accentColor, marginTop: 4 }}>Table {tableNum}</div>
+            <div style={{ fontSize: 9, color: '#94a3b8' }}>Scan to Order</div>
+            <div style={{ fontSize: 8, color: '#cbd5e1', marginTop: 2 }}>Powered by <span style={{ color: accentColor }}>Drusshti</span></div>
+          </div>
+        ))}
+      </div>
+      {numTables > 4 && (
+        <p style={{ fontSize: 11, color: 'var(--color-text-3)', marginTop: 8 }}>+{numTables - 4} more. Click "Print All" to see all.</p>
+      )}
     </div>
   );
 };
@@ -265,7 +443,6 @@ const UsersTab = ({ currentUser }) => {
         <span style={{ fontSize: 13, color: 'var(--color-text-3)' }}>{users.length} users in this company</span>
         <button className="btn btn-primary" onClick={() => setShowCreate(true)}><Plus size={14} /> Add User</button>
       </div>
-
       {loading ? <div className="page-loader"><div className="spinner" /></div> : (
         <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
           <table className="table">
@@ -311,7 +488,6 @@ const UsersTab = ({ currentUser }) => {
           </table>
         </div>
       )}
-
       {showCreate && <CreateUserModal onClose={() => setShowCreate(false)} onSave={() => { setShowCreate(false); load(); }} />}
       {accessUser && <ModuleAccessModal user={accessUser} allModules={modules} onClose={() => setAccessUser(null)} onSave={() => { setAccessUser(null); toast.success('Module access updated'); }} />}
     </>
@@ -450,9 +626,9 @@ const ModuleAccessModal = ({ user, allModules, onClose, onSave }) => {
 // ── Profile Tab ───────────────────────────────────────────────────────────────
 const ProfileTab = () => {
   const { user } = useAuth();
-  const [saving, setSaving]       = useState(false);
+  const [saving, setSaving]         = useState(false);
   const [changingPw, setChangingPw] = useState(false);
-  const [form, setForm]   = useState({ firstName: user?.firstName || '', lastName: user?.lastName || '', phone: '' });
+  const [form, setForm]     = useState({ firstName: user?.firstName || '', lastName: user?.lastName || '', phone: '' });
   const [pwForm, setPwForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
 
   const saveProfile = async (e) => {
@@ -497,7 +673,6 @@ const ProfileTab = () => {
           </button>
         </form>
       </div>
-
       <div className="card">
         <h3 style={{ fontSize: 14, marginBottom: 16 }}>Change Password</h3>
         <form onSubmit={changePassword} style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
