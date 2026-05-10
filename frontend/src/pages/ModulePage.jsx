@@ -82,29 +82,31 @@ const MenuModulePage = () => {
 // ── Kitchen View ──────────────────────────────────────────────────────────────
 const KitchenView = ({ onCountChange }) => {
   const [openOrders, setOpenOrders] = useState([]);
-  const [doneOrders, setDoneOrders] = useState([]);
+  const [paidOrders, setPaidOrders] = useState([]);
   const [loading, setLoading]       = useState(true);
-  const [showDone, setShowDone]     = useState(false);
+  const [kitchenTab, setKitchenTab] = useState('open');
   const [marking, setMarking]       = useState(null);
-  const prevOrderIds = useRef(new Set());
-  const isFirstLoad  = useRef(true);
-  const prevOpenOrders = useRef([]);
+  const prevOrderIds   = useRef(new Set());
+  const isFirstLoad    = useRef(true);
+  const prevAllOrders  = useRef([]);
 
   const fetchOrders = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
       const res = await recordAPI.list('billing', { limit: 200 });
       if (res.success) {
-        const all = res.data.filter(r =>
-          r.data?.bill_type === 'food_bill' &&
-          (r.status === 'open_tab' || r.status === 'ready')
-        );
-        const open = all.filter(r => r.status === 'open_tab')
+        const all = res.data.filter(r => r.data?.bill_type === 'food_bill');
+
+        const open = all
+          .filter(r => r.status === 'open_tab' || r.status === 'ready')
           .sort((a, b) => new Date(a.updated_at) - new Date(b.updated_at));
-        const done = all.filter(r => r.status === 'ready')
+
+        const paid = all
+          .filter(r => r.status === 'paid')
           .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
 
         if (!isFirstLoad.current) {
+          // New order toast + notification
           const newOrders = open.filter(o => !prevOrderIds.current.has(o.id));
           newOrders.forEach(o => {
             toast.success(`New order — Table ${o.data?.table_number || '?'} · ${o.data?.guest_name}`, { duration: 6000, icon: '🍽' });
@@ -115,13 +117,30 @@ const KitchenView = ({ onCountChange }) => {
               });
             }
           });
+
+          // Updated order toast
           const updatedOrders = open.filter(o => {
             if (!prevOrderIds.current.has(o.id)) return false;
-            const prev = prevOpenOrders.current.find(p => p.id === o.id);
+            const prev = prevAllOrders.current.find(p => p.id === o.id);
             return prev && new Date(o.updated_at) > new Date(prev.updated_at);
           });
           updatedOrders.forEach(o => {
             toast(`Order updated — Table ${o.data?.table_number || '?'}`, { duration: 4000, icon: '✏️' });
+          });
+
+          // UPI paid notification
+          const newlyPaid = paid.filter(o => {
+            const prev = prevAllOrders.current.find(p => p.id === o.id);
+            return o.data?._paid_by_customer && (!prev || prev.status !== 'paid');
+          });
+          newlyPaid.forEach(o => {
+            toast.success(`Table ${o.data?.table_number} paid via UPI!`, { duration: 6000, icon: '💸' });
+            if (Notification.permission === 'granted') {
+              new Notification(`UPI Payment — Table ${o.data?.table_number}`, {
+                body: `${o.data?.guest_name} paid ₹${o.data?.total}`,
+                icon: '/favicon.ico',
+              });
+            }
           });
         } else {
           isFirstLoad.current = false;
@@ -129,9 +148,9 @@ const KitchenView = ({ onCountChange }) => {
         }
 
         prevOrderIds.current  = new Set(open.map(o => o.id));
-        prevOpenOrders.current = open;
+        prevAllOrders.current = [...open, ...paid];
         setOpenOrders(open);
-        setDoneOrders(done);
+        setPaidOrders(paid);
         onCountChange(open.length);
       }
     } catch {}
@@ -145,20 +164,29 @@ const KitchenView = ({ onCountChange }) => {
   }, [fetchOrders]);
 
   const handleMarkReady = async (order) => {
-    setMarking(order.id);
+    setMarking(order.id + '_ready');
     try {
-      await recordAPI.update(order.id, { data: { ...order.data, status: 'ready', ready_at: new Date().toISOString() }, status: 'ready' });
+      await recordAPI.update(order.id, {
+        data:   { ...order.data, status: 'ready', ready_at: new Date().toISOString() },
+        status: 'ready',
+      });
       toast.success(`Table ${order.data?.table_number} marked ready`);
       fetchOrders(true);
     } catch (err) { toast.error(err.message); }
     setMarking(null);
   };
 
-  const handleReopenOrder = async (order) => {
+  const handleMarkPaidCash = async (order) => {
+    setMarking(order.id + '_paid');
     try {
-      await recordAPI.update(order.id, { data: { ...order.data, status: 'open_tab' }, status: 'open_tab' });
+      await recordAPI.update(order.id, {
+        data:   { ...order.data, status: 'paid', payment_status: 'paid', payment_method: 'cash', paid_at: new Date().toISOString() },
+        status: 'paid',
+      });
+      toast.success(`Table ${order.data?.table_number} marked paid (cash)`);
       fetchOrders(true);
     } catch (err) { toast.error(err.message); }
+    setMarking(null);
   };
 
   const timeAgo = (dateStr) => {
@@ -173,10 +201,14 @@ const KitchenView = ({ onCountChange }) => {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}`}</style>
+
+      {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <h3 style={{ fontSize: 15 }}>Kitchen View</h3>
-          <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 2 }}>Auto-refreshes every 8s · {openOrders.length} open order{openOrders.length !== 1 ? 's' : ''}</p>
+          <p style={{ fontSize: 12, color: 'var(--color-text-3)', marginTop: 2 }}>
+            Auto-refreshes every 8s · {openOrders.length} open
+          </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#16a34a', display: 'inline-block', animation: 'pulse 2s infinite' }} />
@@ -184,103 +216,142 @@ const KitchenView = ({ onCountChange }) => {
         </div>
       </div>
 
-      {openOrders.length === 0 ? (
-        <div className="card" style={{ padding: 60, textAlign: 'center' }}>
-          <ChefHat size={36} style={{ color: 'var(--color-text-muted)', margin: '0 auto 12px', display: 'block' }} />
-          <p style={{ color: 'var(--color-text-3)', fontSize: 14 }}>No open orders right now.</p>
-          <p style={{ color: 'var(--color-text-muted)', fontSize: 12, marginTop: 4 }}>New orders will appear here automatically.</p>
-        </div>
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14 }}>
-          {openOrders.map((order, idx) => {
-            const items     = order.data?._food_items || [];
-            const isQR      = order.data?._source === 'qr_order';
-            const isUpdated = order.data?._new_items_added?.length > 0;
-            const orderTime = order.data?.order_time || order.created_at;
-            const waitMins  = Math.floor((Date.now() - new Date(orderTime)) / 60000);
-            const isUrgent  = waitMins >= 15;
-            return (
-              <div key={order.id} style={{ background: 'white', borderRadius: 12, border: `2px solid ${isUrgent ? '#dc2626' : isUpdated ? '#d97706' : 'var(--color-border)'}`, overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
-                <div style={{ background: isUrgent ? '#fef2f2' : isUpdated ? '#fffbeb' : 'var(--color-surface)', padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                      <span style={{ fontSize: 18, fontWeight: 800, color: 'var(--color-primary)' }}>Table {order.data?.table_number || '?'}</span>
-                      <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4, background: isQR ? '#dbeafe' : '#f3e8ff', color: isQR ? '#1d4ed8' : '#7c3aed', display: 'flex', alignItems: 'center', gap: 3 }}>
-                        {isQR ? <Smartphone size={9} /> : <User size={9} />}{isQR ? 'QR' : 'Staff'}
-                      </span>
-                      {isUpdated && <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: '#fef9c3', color: '#854d0e' }}>UPDATED</span>}
-                    </div>
-                    <div style={{ fontSize: 12, color: 'var(--color-text-3)' }}>{order.data?.guest_name}{order.data?.phone ? ` · ${order.data.phone}` : ''}</div>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: isUrgent ? '#dc2626' : 'var(--color-text-3)', fontWeight: isUrgent ? 700 : 400 }}>
-                      <Clock size={11} />{timeAgo(orderTime)}
-                    </div>
-                    <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 2 }}>#{idx + 1} in queue</div>
-                  </div>
-                </div>
-                <div style={{ padding: '10px 14px', borderTop: '1px solid var(--color-border)' }}>
-                  {items.map((item, i) => {
-                    const isNew = order.data?._new_items_added?.find(n => n.id === item.id);
-                    return (
-                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: i < items.length - 1 ? '1px solid var(--color-border)' : 'none' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--color-secondary)', minWidth: 24 }}>{item.qty}×</span>
-                          <span style={{ fontSize: 13 }}>{item.name}</span>
-                          {isNew && <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 3, background: '#fef9c3', color: '#854d0e' }}>NEW</span>}
-                        </div>
-                        <span style={{ fontSize: 12, color: 'var(--color-text-3)', fontFamily: 'monospace' }}>₹{(item.price * item.qty).toLocaleString()}</span>
+      {/* Kitchen Tabs */}
+      <div style={{ display: 'flex', gap: 4, background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', padding: 4, width: 'fit-content' }}>
+        <button className={`btn btn-sm ${kitchenTab === 'open' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setKitchenTab('open')}>
+          Open Orders
+          {openOrders.length > 0 && (
+            <span style={{ marginLeft: 6, background: '#dc2626', color: 'white', borderRadius: 10, padding: '1px 6px', fontSize: 10, fontWeight: 700 }}>{openOrders.length}</span>
+          )}
+        </button>
+        <button className={`btn btn-sm ${kitchenTab === 'paid' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setKitchenTab('paid')}>
+          Paid
+          {paidOrders.length > 0 && (
+            <span style={{ marginLeft: 6, background: '#16a34a', color: 'white', borderRadius: 10, padding: '1px 6px', fontSize: 10, fontWeight: 700 }}>{paidOrders.length}</span>
+          )}
+        </button>
+      </div>
+
+      {/* ── Open Orders ── */}
+      {kitchenTab === 'open' && (
+        openOrders.length === 0 ? (
+          <div className="card" style={{ padding: 60, textAlign: 'center' }}>
+            <ChefHat size={36} style={{ color: 'var(--color-text-muted)', margin: '0 auto 12px', display: 'block' }} />
+            <p style={{ color: 'var(--color-text-3)', fontSize: 14 }}>No open orders right now.</p>
+            <p style={{ color: 'var(--color-text-muted)', fontSize: 12, marginTop: 4 }}>New orders will appear here automatically.</p>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14 }}>
+            {openOrders.map((order, idx) => {
+              const items     = order.data?._food_items || [];
+              const isQR      = order.data?._source === 'qr_order';
+              const isUpdated = order.data?._new_items_added?.length > 0;
+              const isReady   = order.status === 'ready';
+              const orderTime = order.data?.order_time || order.created_at;
+              const waitMins  = Math.floor((Date.now() - new Date(orderTime)) / 60000);
+              const isUrgent  = waitMins >= 15;
+
+              return (
+                <div key={order.id} style={{ background: 'white', borderRadius: 12, border: `2px solid ${isReady ? '#16a34a' : isUrgent ? '#dc2626' : isUpdated ? '#d97706' : 'var(--color-border)'}`, overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+                  <div style={{ background: isReady ? '#f0fdf4' : isUrgent ? '#fef2f2' : isUpdated ? '#fffbeb' : 'var(--color-surface)', padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                        <span style={{ fontSize: 18, fontWeight: 800, color: 'var(--color-primary)' }}>Table {order.data?.table_number || '?'}</span>
+                        <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4, background: isQR ? '#dbeafe' : '#f3e8ff', color: isQR ? '#1d4ed8' : '#7c3aed', display: 'flex', alignItems: 'center', gap: 3 }}>
+                          {isQR ? <Smartphone size={9} /> : <User size={9} />}{isQR ? 'QR' : 'Staff'}
+                        </span>
+                        {isReady && <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: '#dcfce7', color: '#16a34a' }}>READY</span>}
+                        {isUpdated && !isReady && <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: '#fef9c3', color: '#854d0e' }}>UPDATED</span>}
                       </div>
-                    );
-                  })}
-                </div>
-                <div style={{ padding: '10px 14px', background: 'var(--color-surface)', borderTop: '1px solid var(--color-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-secondary)' }}>₹{Number(order.data?.total || 0).toLocaleString()}</span>
-                    <span style={{ fontSize: 11, color: 'var(--color-text-3)', marginLeft: 6 }}>{order.data?.payment_method === 'upi' ? '📱 UPI' : '💵 Cash'}</span>
+                      <div style={{ fontSize: 12, color: 'var(--color-text-3)' }}>
+                        {order.data?.guest_name}{order.data?.phone ? ` · ${order.data.phone}` : ''}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: isUrgent ? '#dc2626' : 'var(--color-text-3)', fontWeight: isUrgent ? 700 : 400 }}>
+                        <Clock size={11} />{timeAgo(orderTime)}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 2 }}>#{idx + 1} in queue</div>
+                    </div>
                   </div>
-                  <button className="btn btn-primary btn-sm" onClick={() => handleMarkReady(order)} disabled={marking === order.id}>
-                    {marking === order.id ? <Loader size={12} className="animate-spin" /> : <CheckCircle size={12} />} Mark Ready
-                  </button>
+
+                  <div style={{ padding: '10px 14px', borderTop: '1px solid var(--color-border)' }}>
+                    {items.map((item, i) => {
+                      const isNew = order.data?._new_items_added?.find(n => n.id === item.id);
+                      return (
+                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderBottom: i < items.length - 1 ? '1px solid var(--color-border)' : 'none' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--color-secondary)', minWidth: 24 }}>{item.qty}×</span>
+                            <span style={{ fontSize: 13 }}>{item.name}</span>
+                            {isNew && <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 3, background: '#fef9c3', color: '#854d0e' }}>NEW</span>}
+                          </div>
+                          <span style={{ fontSize: 12, color: 'var(--color-text-3)', fontFamily: 'monospace' }}>₹{(item.price * item.qty).toLocaleString()}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div style={{ padding: '10px 14px', background: 'var(--color-surface)', borderTop: '1px solid var(--color-border)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-secondary)' }}>₹{Number(order.data?.total || 0).toLocaleString()}</span>
+                        <span style={{ fontSize: 11, color: 'var(--color-text-3)', marginLeft: 6 }}>{order.data?.payment_method === 'upi' ? '📱 UPI' : '💵 Cash'}</span>
+                      </div>
+                      {!isReady && (
+                        <button className="btn btn-secondary btn-sm" onClick={() => handleMarkReady(order)} disabled={marking === order.id + '_ready'}>
+                          {marking === order.id + '_ready' ? <Loader size={12} className="animate-spin" /> : <CheckCircle size={12} />} Mark Ready
+                        </button>
+                      )}
+                    </div>
+                    {isReady && (
+                      <button className="btn btn-primary btn-sm" style={{ width: '100%' }}
+                        onClick={() => handleMarkPaidCash(order)} disabled={marking === order.id + '_paid'}>
+                        {marking === order.id + '_paid' ? <Loader size={12} className="animate-spin" /> : <CheckCircle size={12} />}
+                        Mark Paid (Cash)
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )
       )}
 
-      <div>
-        <button className="btn btn-ghost btn-sm" onClick={() => setShowDone(!showDone)} style={{ fontSize: 13, color: 'var(--color-text-3)', marginBottom: 10 }}>
-          {showDone ? '▾' : '▸'} Completed Orders ({doneOrders.length})
-        </button>
-        {showDone && (
-          doneOrders.length === 0 ? <p style={{ fontSize: 13, color: 'var(--color-text-muted)', padding: '8px 0' }}>No completed orders yet.</p> : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {doneOrders.map(order => {
-                const items = order.data?._food_items || [];
-                const isQR  = order.data?._source === 'qr_order';
-                return (
-                  <div key={order.id} className="card" style={{ padding: '12px 16px', opacity: 0.7 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <CheckCircle size={14} color="#16a34a" />
-                        <span style={{ fontWeight: 600, fontSize: 14 }}>Table {order.data?.table_number}</span>
-                        <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{order.data?.guest_name}</span>
-                        <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 3, background: isQR ? '#dbeafe' : '#f3e8ff', color: isQR ? '#1d4ed8' : '#7c3aed' }}>{isQR ? 'QR' : 'Staff'}</span>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-secondary)' }}>₹{Number(order.data?.total || 0).toLocaleString()}</span>
-                        <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{items.length} item{items.length !== 1 ? 's' : ''}</span>
-                        <button className="btn btn-ghost btn-sm" onClick={() => handleReopenOrder(order)} style={{ fontSize: 11 }}>Reopen</button>
-                      </div>
+      {/* ── Paid Orders ── */}
+      {kitchenTab === 'paid' && (
+        paidOrders.length === 0 ? (
+          <div className="card" style={{ padding: 40, textAlign: 'center' }}>
+            <p style={{ color: 'var(--color-text-3)', fontSize: 13 }}>No paid orders yet.</p>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {paidOrders.map(order => {
+              const items = order.data?._food_items || [];
+              const isQR  = order.data?._source === 'qr_order';
+              const isUPI = order.data?.payment_method === 'upi';
+              return (
+                <div key={order.id} className="card" style={{ padding: '14px 16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <CheckCircle size={16} color="#16a34a" />
+                      <span style={{ fontWeight: 700, fontSize: 15 }}>Table {order.data?.table_number}</span>
+                      <span style={{ fontSize: 12, color: 'var(--color-text-3)' }}>{order.data?.guest_name}</span>
+                      <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: isQR ? '#dbeafe' : '#f3e8ff', color: isQR ? '#1d4ed8' : '#7c3aed' }}>{isQR ? 'QR' : 'Staff'}</span>
+                      <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: isUPI ? '#dcfce7' : '#f1f5f9', color: isUPI ? '#16a34a' : '#64748b', fontWeight: 600 }}>{isUPI ? '📱 UPI' : '💵 Cash'}</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <span style={{ fontWeight: 700, color: 'var(--color-secondary)', fontSize: 14 }}>₹{Number(order.data?.total || 0).toLocaleString()}</span>
+                      <span style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{items.length} item{items.length !== 1 ? 's' : ''}</span>
+                      <span style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>{timeAgo(order.data?.paid_at || order.updated_at)}</span>
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          )
-        )}
-      </div>
+                </div>
+              );
+            })}
+          </div>
+        )
+      )}
     </div>
   );
 };
@@ -399,7 +470,10 @@ const MenuOrderPage = () => {
     setClosing(false);
   };
 
-  const CATEGORY_LABELS = { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', beverages: 'Beverages', snacks: 'Snacks', desserts: 'Desserts', room_service: 'Room Service' };
+  const CATEGORY_LABELS = {
+    breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner',
+    beverages: 'Beverages', snacks: 'Snacks', desserts: 'Desserts', room_service: 'Room Service',
+  };
 
   if (loading) return <div className="page-loader"><div className="spinner" /></div>;
 
@@ -443,7 +517,9 @@ const MenuOrderPage = () => {
                       {items.length > 3 && <div>+{items.length - 3} more items</div>}
                       {items.length === 0 && <div>No items yet</div>}
                     </div>
-                    <div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{items.length} item{items.length !== 1 ? 's' : ''} · {new Date(tab.created_at).toLocaleDateString()}</div>
+                    <div style={{ fontSize: 11, color: 'var(--color-text-3)' }}>
+                      {items.length} item{items.length !== 1 ? 's' : ''} · {new Date(tab.created_at).toLocaleDateString()}
+                    </div>
                     <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
                       <button className="btn btn-secondary btn-sm" style={{ flex: 1 }} onClick={() => openExistingTab(tab)}><Edit size={12} /> Add / Edit Items</button>
                       <button className="btn btn-primary btn-sm" style={{ flex: 1 }} onClick={() => handleCloseTab(tab)} disabled={closing}><Receipt size={12} /> Close & Bill</button>
