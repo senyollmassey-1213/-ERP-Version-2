@@ -5,7 +5,7 @@ import { useAuth } from 'context/AuthContext';
 import toast from 'react-hot-toast';
 import QRCode from 'qrcode';
 
-const FRONTEND_URL = 'https://frontend-production-59b4.up.railway.app';
+const FRONTEND_URL = 'https://app.drusshti.com';
 
 const SettingsPage = () => {
   const { user: me } = useAuth();
