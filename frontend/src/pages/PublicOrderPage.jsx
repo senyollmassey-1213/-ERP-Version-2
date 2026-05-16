@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { ShoppingCart, CheckCircle, Loader, X, Plus, Minus, ChefHat, Receipt } from 'lucide-react';
 
-const API = 'https://backend-production-4750.up.railway.app/api/public';
+const API = 'https://api.drusshti.com/api/public';
 
 const PublicOrderPage = () => {
   const { hotelSlug } = useParams();
