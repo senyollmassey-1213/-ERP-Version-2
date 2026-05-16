@@ -111,19 +111,7 @@ const LoginPage = () => {
               {loading ? 'Signing in...' : 'Sign In'}
             </button>
           </form>
-
-          <div className="demo-box">
-            <p className="demo-title">Quick Login</p>
-            <div className="demo-grid">
-              <button className="demo-btn" onClick={() => fillDemo('superadmin@drusshti.com','SuperAdmin@123')}>
-                Super Admin
-              </button>
-              <button className="demo-btn" onClick={() => fillDemo('cs@drusshti.com','CS@123456')}>
-                Client Servicing
-              </button>
-            </div>
-          </div>
-
+          
           <p className="login-footer">Powered by <strong>Drusshti</strong> · www.drusshti.com</p>
         </div>
       </div>
