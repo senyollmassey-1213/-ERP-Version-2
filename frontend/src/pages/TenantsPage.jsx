@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Pencil, Building2, X, Save, Loader } from 'lucide-react';
+import { Plus, Trash2, Pencil, Building2, X, Save, Loader, Users } from 'lucide-react';
 import { tenantAPI, industryAPI, moduleAPI } from 'services/api';
 import toast from 'react-hot-toast';
 
-// These are platform-level features, not DB modules.
-// We show them as optional add-ons in Step 2 of company creation.
+const API = 'https://api.drusshti.com/api';
+
 const QR_ADDONS = [
   { id: '__qr_scan__',      name: 'QR Scan',      slug: 'qr_scan' },
   { id: '__qr_generator__', name: 'QR Generator', slug: 'qr_generator' },
@@ -16,6 +16,7 @@ const TenantsPage = () => {
   const [loading, setLoading]       = useState(true);
   const [showModal, setShowModal]   = useState(false);
   const [editTenant, setEditTenant] = useState(null);
+  const [manageFoodCourt, setManageFoodCourt] = useState(null);
 
   useEffect(() => {
     Promise.all([
@@ -61,7 +62,7 @@ const TenantsPage = () => {
           ) : (
             <table className="table">
               <thead>
-                <tr><th>Company</th><th>Industry</th><th>Modules</th><th>Plan</th><th>Users</th><th>Status</th><th>Created</th><th></th></tr>
+                <tr><th>Company</th><th>Industry</th><th>Type</th><th>Plan</th><th>Users</th><th>Status</th><th>Created</th><th></th></tr>
               </thead>
               <tbody>
                 {tenants.map(t => (
@@ -78,13 +79,22 @@ const TenantsPage = () => {
                       </div>
                     </td>
                     <td><span className="badge badge-info">{t.industry_name}</span></td>
-                    <td style={{ fontSize: 12, color: 'var(--color-text-3)' }}>—</td>
+                    <td>
+                      {t.tenant_type === 'food_court'
+                        ? <span className="badge badge-warning">Food Court</span>
+                        : <span className="badge badge-default">Standard</span>}
+                    </td>
                     <td><span className="badge badge-default">{t.subscription_plan}</span></td>
                     <td>{t.user_count}</td>
                     <td><span className={`badge ${t.is_active ? 'badge-success' : 'badge-error'}`}>{t.is_active ? 'Active' : 'Inactive'}</span></td>
                     <td style={{ fontSize: 11, color: 'var(--color-text-3)' }}>{new Date(t.created_at).toLocaleDateString()}</td>
                     <td>
                       <div style={{ display: 'flex', gap: 4 }}>
+                        {t.tenant_type === 'food_court' && (
+                          <button className="btn btn-ghost btn-sm btn-icon" title="Manage Members" onClick={() => setManageFoodCourt(t)}>
+                            <Users size={13} />
+                          </button>
+                        )}
                         <button className="btn btn-ghost btn-sm btn-icon" title="Edit" onClick={() => setEditTenant(t)}>
                           <Pencil size={13} />
                         </button>
@@ -104,6 +114,7 @@ const TenantsPage = () => {
       {showModal && (
         <CreateTenantModal
           industries={industries}
+          tenants={tenants}
           onClose={() => setShowModal(false)}
           onSave={() => { setShowModal(false); reload(); }}
         />
@@ -116,6 +127,109 @@ const TenantsPage = () => {
           onSave={() => { setEditTenant(null); reload(); }}
         />
       )}
+
+      {manageFoodCourt && (
+        <ManageMembersModal
+          foodCourt={manageFoodCourt}
+          allTenants={tenants.filter(t => t.tenant_type !== 'food_court')}
+          onClose={() => setManageFoodCourt(null)}
+        />
+      )}
+    </div>
+  );
+};
+
+// ── Manage Members Modal ──────────────────────────────────────────────────────
+const ManageMembersModal = ({ foodCourt, allTenants, onClose }) => {
+  const [members, setMembers]   = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [saving, setSaving]     = useState(false);
+  const [selectedId, setSelectedId] = useState('');
+
+  const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+
+  const loadMembers = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API}/tenants/${foodCourt.id}/food-court-members`, {
+        headers: { Authorization: `Bearer ${token}` },
+      }).then(r => r.json());
+      if (res.success) setMembers(res.data);
+    } catch {}
+    setLoading(false);
+  };
+
+  useEffect(() => { loadMembers(); }, []);
+
+  const handleAdd = async () => {
+    if (!selectedId) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`${API}/tenants/${foodCourt.id}/food-court-members`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ member_tenant_id: selectedId }),
+      }).then(r => r.json());
+      if (res.success) { toast.success('Restaurant added'); setSelectedId(''); loadMembers(); }
+      else toast.error(res.message);
+    } catch { toast.error('Failed to add'); }
+    setSaving(false);
+  };
+
+  const handleRemove = async (memberId) => {
+    if (!window.confirm('Remove this restaurant from the food court?')) return;
+    try {
+      const res = await fetch(`${API}/tenants/${foodCourt.id}/food-court-members/${memberId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      }).then(r => r.json());
+      if (res.success) { toast.success('Removed'); loadMembers(); }
+      else toast.error(res.message);
+    } catch { toast.error('Failed to remove'); }
+  };
+
+  const availableTenants = allTenants.filter(t => !members.find(m => m.member_tenant_id === t.id));
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal" style={{ maxWidth: 500 }}>
+        <div className="modal-header">
+          <h3 className="modal-title">Manage Members — {foodCourt.name}</h3>
+          <button className="btn btn-ghost btn-icon" onClick={onClose}><X size={17} /></button>
+        </div>
+        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* Add member */}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <select className="form-select" value={selectedId} onChange={e => setSelectedId(e.target.value)} style={{ flex: 1 }}>
+              <option value="">Select a restaurant to add...</option>
+              {availableTenants.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+            <button className="btn btn-primary" onClick={handleAdd} disabled={saving || !selectedId}>
+              {saving ? <Loader size={14} className="animate-spin" /> : <Plus size={14} />} Add
+            </button>
+          </div>
+
+          {/* Current members */}
+          {loading ? <div className="page-loader"><div className="spinner" /></div> : (
+            members.length === 0
+              ? <p style={{ fontSize: 13, color: 'var(--color-text-3)', textAlign: 'center', padding: '20px 0' }}>No restaurants added yet</p>
+              : members.map(m => (
+                <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)' }}>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 13 }}>{m.member_name}</div>
+                    <div style={{ fontSize: 11, color: 'var(--color-text-3)', fontFamily: 'monospace' }}>{m.member_slug}</div>
+                  </div>
+                  <button className="btn btn-ghost btn-sm btn-icon" onClick={() => handleRemove(m.id)}>
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              ))
+          )}
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-secondary" onClick={onClose}>Close</button>
+        </div>
+      </div>
     </div>
   );
 };
@@ -192,12 +306,13 @@ const EditTenantModal = ({ tenant, onClose, onSave }) => {
 };
 
 // ── Create Company Modal ──────────────────────────────────────────────────────
-const CreateTenantModal = ({ industries, onClose, onSave }) => {
+const CreateTenantModal = ({ industries, tenants, onClose, onSave }) => {
   const [step, setStep]                   = useState(1);
   const [saving, setSaving]               = useState(false);
   const [industryModules, setIndModules]  = useState([]);
   const [selectedModules, setSelectedModules] = useState([]);
   const [selectedQR, setSelectedQR]       = useState([]);
+  const [isFoodCourt, setIsFoodCourt]     = useState(false);
 
   const [form, setForm] = useState({
     name: '', slug: '',
@@ -235,13 +350,14 @@ const CreateTenantModal = ({ industries, onClose, onSave }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.industryId) return toast.error('Select an industry');
+    if (!isFoodCourt && !form.industryId) return toast.error('Select an industry');
     if (!form.adminEmail || !form.adminPassword) return toast.error('Admin credentials required');
     setSaving(true);
     try {
       await tenantAPI.create({
         ...form,
-        moduleIds: selectedModules,
+        moduleIds: isFoodCourt ? [] : selectedModules,
+        tenant_type: isFoodCourt ? 'food_court' : 'standard',
         features: {
           qr_scan:      selectedQR.includes('__qr_scan__'),
           qr_generator: selectedQR.includes('__qr_generator__'),
@@ -256,6 +372,16 @@ const CreateTenantModal = ({ industries, onClose, onSave }) => {
     }
   };
 
+  // If food court, submit directly from step 1
+  const handleStep1Next = (e) => {
+    e.preventDefault();
+    if (isFoodCourt) {
+      handleSubmit(e);
+    } else {
+      setStep(2);
+    }
+  };
+
   return (
     <div className="modal-overlay">
       <div className="modal" style={{ maxWidth: 580 }}>
@@ -266,9 +392,21 @@ const CreateTenantModal = ({ industries, onClose, onSave }) => {
           <button className="btn btn-ghost btn-icon" onClick={onClose}><X size={17} /></button>
         </div>
 
-        <form onSubmit={step === 2 ? handleSubmit : (e) => { e.preventDefault(); setStep(2); }}>
+        <form onSubmit={step === 2 ? handleSubmit : handleStep1Next}>
           {step === 1 && (
             <div className="modal-body" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+
+              {/* Food Court toggle */}
+              <div style={{ gridColumn: '1/-1' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', border: `1.5px solid ${isFoodCourt ? 'var(--color-secondary)' : 'var(--color-border)'}`, borderRadius: 'var(--radius-md)', cursor: 'pointer', background: isFoodCourt ? '#fff7ed' : 'var(--color-surface)', transition: 'var(--transition)' }}>
+                  <input type="checkbox" checked={isFoodCourt} onChange={e => setIsFoodCourt(e.target.checked)} />
+                  <div>
+                    <span style={{ fontSize: 13, fontWeight: 600 }}>This is a Food Court</span>
+                    <p style={{ fontSize: 11, color: 'var(--color-text-3)', margin: '2px 0 0' }}>Creates a gateway tenant that holds the shared QR and links to member restaurants</p>
+                  </div>
+                </label>
+              </div>
+
               <div className="form-group">
                 <label className="form-label">Company Name *</label>
                 <input className="form-input" value={form.name}
@@ -282,14 +420,18 @@ const CreateTenantModal = ({ industries, onClose, onSave }) => {
                   style={{ fontFamily: 'monospace', fontSize: 12 }} required />
                 <span className="form-hint">Used for login: company-slug</span>
               </div>
-              <div className="form-group" style={{ gridColumn: '1/-1' }}>
-                <label className="form-label">Industry *</label>
-                <select className="form-select" value={form.industryId}
-                  onChange={e => handleIndustryChange(e.target.value)} required>
-                  <option value="">Select industry...</option>
-                  {industries.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
-                </select>
-              </div>
+
+              {!isFoodCourt && (
+                <div className="form-group" style={{ gridColumn: '1/-1' }}>
+                  <label className="form-label">Industry *</label>
+                  <select className="form-select" value={form.industryId}
+                    onChange={e => handleIndustryChange(e.target.value)} required>
+                    <option value="">Select industry...</option>
+                    {industries.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+                  </select>
+                </div>
+              )}
+
               <div className="form-group">
                 <label className="form-label">Plan</label>
                 <select className="form-select" value={form.subscriptionPlan}
@@ -331,8 +473,6 @@ const CreateTenantModal = ({ industries, onClose, onSave }) => {
               <p style={{ fontSize: 13, color: 'var(--color-text-2)', marginBottom: 16 }}>
                 Select which modules this company can access. Dashboard is always included.
               </p>
-
-              {/* Industry modules */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {industryModules.map(m => (
                   <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', border: `1.5px solid ${selectedModules.includes(m.id) ? 'var(--color-secondary)' : 'var(--color-border)'}`, borderRadius: 'var(--radius-md)', cursor: 'pointer', background: selectedModules.includes(m.id) ? '#fff7ed' : 'var(--color-surface)', transition: 'var(--transition)' }}>
@@ -341,12 +481,9 @@ const CreateTenantModal = ({ industries, onClose, onSave }) => {
                   </label>
                 ))}
               </div>
-
               {industryModules.length === 0 && (
                 <div className="empty-state"><p>No modules found for this industry</p></div>
               )}
-
-              {/* QR Add-ons — always shown regardless of industry */}
               <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--color-border)' }}>
                 <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-text-3)', marginBottom: 10 }}>
                   QR Features (optional)
@@ -368,7 +505,7 @@ const CreateTenantModal = ({ industries, onClose, onSave }) => {
             <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
             <button type="submit" className="btn btn-primary" disabled={saving}>
               {saving ? <Loader size={14} className="animate-spin" /> : <Save size={14} />}
-              {step === 1 ? 'Next: Modules →' : 'Create Company'}
+              {step === 1 ? (isFoodCourt ? 'Create Food Court' : 'Next: Modules →') : 'Create Company'}
             </button>
           </div>
         </form>

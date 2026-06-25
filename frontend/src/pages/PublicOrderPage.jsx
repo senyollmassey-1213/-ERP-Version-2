@@ -1,9 +1,48 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { ShoppingCart, CheckCircle, Loader, X, Plus, Minus, ChefHat, Receipt } from 'lucide-react';
 
 const API = 'https://api.drusshti.com/api/public';
 
+// ── Food Court Picker ─────────────────────────────────────────────────────────
+const FoodCourtPicker = ({ foodCourtName, members, tableNum }) => {
+  const navigate = useNavigate();
+
+  const handlePick = (slug) => {
+    navigate(`/order/${slug}${tableNum ? `?table=${tableNum}` : ''}`);
+  };
+
+  return (
+    <div style={{ minHeight: '100vh', background: '#f8fafc', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
+      <div style={{ background: '#0b1628', padding: '24px 16px 20px' }}>
+        <div style={{ maxWidth: 480, margin: '0 auto' }}>
+          <h1 style={{ color: 'white', fontSize: 20, fontWeight: 700, margin: 0 }}>{foodCourtName}</h1>
+          {tableNum && <p style={{ color: 'rgba(255,255,255,0.65)', fontSize: 13, marginTop: 4 }}>Table {tableNum}</p>}
+          <p style={{ color: 'rgba(255,255,255,0.8)', fontSize: 14, marginTop: 8 }}>Where would you like to order from?</p>
+        </div>
+      </div>
+      <div style={{ maxWidth: 480, margin: '0 auto', padding: '20px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {members.map(m => (
+          <button key={m.slug} onClick={() => handlePick(m.slug)}
+            style={{ width: '100%', background: 'white', border: '1.5px solid #e2e8f0', borderRadius: 14, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 14, cursor: 'pointer', boxShadow: '0 1px 6px rgba(0,0,0,0.05)', textAlign: 'left' }}>
+            <div style={{ width: 44, height: 44, borderRadius: 10, background: m.primary_color || '#0b1628', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 700, fontSize: 18, flexShrink: 0 }}>
+              {m.logo_url
+                ? <img src={m.logo_url} alt={m.name} style={{ width: 44, height: 44, borderRadius: 10, objectFit: 'cover' }} onError={e => e.target.style.display = 'none'} />
+                : m.name.charAt(0)}
+            </div>
+            <span style={{ fontWeight: 600, fontSize: 16, color: '#1e293b' }}>{m.name}</span>
+            <span style={{ marginLeft: 'auto', color: '#94a3b8', fontSize: 20 }}>›</span>
+          </button>
+        ))}
+      </div>
+      <div style={{ textAlign: 'center', padding: '20px 0', fontSize: 11, color: '#cbd5e1' }}>
+        Powered by <strong style={{ color: '#c75b39' }}>Drusshti</strong>
+      </div>
+    </div>
+  );
+};
+
+// ── Main Page ─────────────────────────────────────────────────────────────────
 const PublicOrderPage = () => {
   const { hotelSlug } = useParams();
   const [searchParams] = useSearchParams();
@@ -27,9 +66,23 @@ const PublicOrderPage = () => {
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [orderReady, setOrderReady] = useState(false);
 
+  // Food court state
+  const [isFoodCourt, setIsFoodCourt] = useState(false);
+  const [foodCourtData, setFoodCourtData] = useState(null);
+
   useEffect(() => {
     const load = async () => {
       try {
+        // First check if this is a food court
+        const fcRes = await fetch(`${API}/${hotelSlug}/food-court`).then(r => r.json());
+        if (fcRes.success) {
+          setIsFoodCourt(true);
+          setFoodCourtData(fcRes.data);
+          setLoading(false);
+          return;
+        }
+
+        // Normal restaurant flow
         const menuRes = await fetch(`${API}/${hotelSlug}/menu`).then(r => r.json());
         if (!menuRes.success) { setError(menuRes.message || 'Restaurant not found'); setLoading(false); return; }
         setRestaurant(menuRes.data.restaurant);
@@ -140,10 +193,19 @@ const PublicOrderPage = () => {
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc' }}>
       <div style={{ textAlign: 'center' }}>
         <div style={{ width: 40, height: 40, border: '3px solid #e2e8f0', borderTop: '3px solid #c75b39', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 16px' }} />
-        <p style={{ color: '#64748b', fontSize: 14 }}>Loading menu...</p>
+        <p style={{ color: '#64748b', fontSize: 14 }}>Loading...</p>
       </div>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
+  );
+
+  // Food court picker screen
+  if (isFoodCourt && foodCourtData) return (
+    <FoodCourtPicker
+      foodCourtName={foodCourtData.food_court_name}
+      members={foodCourtData.members}
+      tableNum={tableNum}
+    />
   );
 
   if (error) return (
